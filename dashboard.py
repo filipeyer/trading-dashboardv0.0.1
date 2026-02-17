@@ -16,7 +16,6 @@ try:
     ML_AVAILABLE = True
 except ImportError:
     ML_AVAILABLE = False
-    st.warning("⚠️ ML libraries not installed. Install with: pip install scikit-learn joblib")
 
 st.set_page_config(page_title="Vectora", layout="wide", initial_sidebar_state="expanded")
 
@@ -960,22 +959,43 @@ def render_page_header(title, subtitle=None, pill=None):
 
 
 def render_exchange_asset_controls(prefix):
+    available_pairs = get_available_pairs()
     col_ds1, col_ds2 = st.columns(2)
     with col_ds1:
-        exchange = st.selectbox(
+        if not available_pairs.empty:
+            exchanges = available_pairs['exchange'].str.capitalize().unique().tolist()
+            raw_exchanges = available_pairs['exchange'].unique().tolist()
+        else:
+            exchanges = ['Binance']
+            raw_exchanges = ['binance']
+
+        exchange_display = st.selectbox(
             "Exchange",
-            ["Bybit", "Binance", "Hyperliquid", "Coinbase"],
+            exchanges,
             index=0,
             key=f"{prefix}_exchange"
         )
+        selected_exchange_raw = raw_exchanges[exchanges.index(exchange_display)]
+
     with col_ds2:
+        if not available_pairs.empty:
+            symbols = available_pairs[available_pairs['exchange'] == selected_exchange_raw]['symbol'].tolist()
+        else:
+            symbols = ['BTC/USDT']
+
         asset = st.selectbox(
             "Asset",
-            ["BTC/USDT", "ETH/USDT", "SOL/USDT", "BNB/USDT", "XRP/USDT", "ADA/USDT"],
+            symbols,
             index=0,
             key=f"{prefix}_asset"
         )
-    return exchange, asset
+
+    # Update session state so load_data picks up changes
+    if st.session_state.get('selected_exchange') != selected_exchange_raw or st.session_state.get('selected_symbol') != asset:
+        st.session_state['selected_exchange'] = selected_exchange_raw
+        st.session_state['selected_symbol'] = asset
+
+    return exchange_display, asset
 
 
 CANDLE_HOVER_TEMPLATE = (
@@ -1248,19 +1268,6 @@ def load_data(exchange='binance', symbol='BTC/USDT'):
 with st.sidebar:
     st.markdown("<div class='sidebar-brand'>Vectora</div>", unsafe_allow_html=True)
 
-    # Exchange & Symbol Selectors
-    available_pairs = get_available_pairs()
-
-    if not available_pairs.empty:
-        exchanges = available_pairs['exchange'].unique().tolist()
-        selected_exchange = st.selectbox("Exchange", exchanges, key="exchange_selector")
-
-        symbols = available_pairs[available_pairs['exchange'] == selected_exchange]['symbol'].tolist()
-        selected_symbol = st.selectbox("Asset", symbols, key="symbol_selector")
-    else:
-        selected_exchange = 'binance'
-        selected_symbol = 'BTC/USDT'
-
     st.markdown("<div class='sidebar-section'>Navigation</div>", unsafe_allow_html=True)
     
     pages = [
@@ -1289,6 +1296,10 @@ with st.sidebar:
     # removed sidebar info box
 
 page = st.session_state.current_page
+
+# Get selected exchange/symbol from session state (set by analysis controls on each page)
+selected_exchange = st.session_state.get('selected_exchange', 'binance')
+selected_symbol = st.session_state.get('selected_symbol', 'BTC/USDT')
 
 # Load data based on selected exchange/symbol
 df_15m, df_daily = load_data(selected_exchange, selected_symbol)
@@ -3511,7 +3522,7 @@ if page == "Daily Pivots" or (pivot_page_mode and pivot_section == "Daily"):
             
             start_date_dp = st.date_input(
                 "Start Date",
-                value=max_date - timedelta(days=365),
+                value=clamp_date(max_date - timedelta(days=365), min_date, max_date),
                 min_value=min_date,
                 max_value=max_date,
                 key="dp_hourly_start"
@@ -3565,7 +3576,7 @@ if page == "Daily Pivots" or (pivot_page_mode and pivot_section == "Daily"):
             
             start_date_dp = st.date_input(
                 "Start Date",
-                value=max_date - timedelta(days=365),
+                value=clamp_date(max_date - timedelta(days=365), min_date, max_date),
                 min_value=min_date,
                 max_value=max_date,
                 key="dp_session_start"
@@ -4073,7 +4084,7 @@ if page == "Daily Pivots" or (pivot_page_mode and pivot_section == "Daily"):
             
             start_date_session = st.date_input(
                 "Start Date",
-                value=max_date - timedelta(days=365),
+                value=clamp_date(max_date - timedelta(days=365), min_date, max_date),
                 min_value=min_date,
                 max_value=max_date,
                 key="dp_session_start_session"
@@ -4689,7 +4700,7 @@ if page == "High Hit Rate Levels":
 
         start_date_hhrl = st.date_input(
             "Start Date",
-            value=max_date - timedelta(days=1095),
+            value=clamp_date(max_date - timedelta(days=1095), min_date, max_date),
             min_value=min_date,
             max_value=max_date,
             key="hhrl_start"
@@ -5893,7 +5904,7 @@ if page == "One Time Framing Analysis":
         
         start_date = st.date_input(
             "Start Date",
-            value=max_date - timedelta(days=365),
+            value=clamp_date(max_date - timedelta(days=365), min_date, max_date),
             min_value=min_date,
             max_value=max_date
         )
@@ -6510,7 +6521,7 @@ elif page == "Session TPO":
         
         start_date_tpo = st.date_input(
             "Start Date",
-            value=max_date - timedelta(days=180),
+            value=clamp_date(max_date - timedelta(days=180), min_date, max_date),
             min_value=min_date,
             max_value=max_date,
             key="tpo_start"
@@ -7124,7 +7135,7 @@ elif page == "Monday Range":
         max_date = df_15m.index.max().date()
         start_date_mr = st.date_input(
             "Start Date",
-            value=max_date - timedelta(days=365),
+            value=clamp_date(max_date - timedelta(days=365), min_date, max_date),
             min_value=min_date,
             max_value=max_date,
             key="mr_start"
@@ -7549,7 +7560,7 @@ elif page == "Session Pivots" or (pivot_page_mode and pivot_section == "Session"
         
         start_date_sp = st.date_input(
             "Start Date",
-            value=max_date - timedelta(days=365),
+            value=clamp_date(max_date - timedelta(days=365), min_date, max_date),
             min_value=min_date,
             max_value=max_date,
             key="sp_start"
@@ -8039,7 +8050,7 @@ elif page == "Weekly Pivots" or (pivot_page_mode and pivot_section == "Weekly"):
         
         start_date_wp = st.date_input(
             "Start Date",
-            value=max_date - timedelta(days=365),
+            value=clamp_date(max_date - timedelta(days=365), min_date, max_date),
             min_value=min_date,
             max_value=max_date,
             key="wp_start"
@@ -8474,7 +8485,7 @@ elif page == "Monthly Pivots" or (pivot_page_mode and pivot_section == "Monthly"
         
         start_date_mp = st.date_input(
             "Start Date",
-            value=max_date - timedelta(days=730),
+            value=clamp_date(max_date - timedelta(days=730), min_date, max_date),
             min_value=min_date,
             max_value=max_date,
             key="mp_start"
@@ -9096,7 +9107,7 @@ if page == "Daily TPO":
         
         start_date_daily_tpo = st.date_input(
             "Start Date",
-            value=max_date - timedelta(days=180),
+            value=clamp_date(max_date - timedelta(days=180), min_date, max_date),
             min_value=min_date,
             max_value=max_date,
             key="daily_tpo_start"
@@ -9598,7 +9609,7 @@ elif page == "Large Wick Fills":
 
         start_date_wf = st.date_input(
             "Start Date",
-            value=max_date - timedelta(days=365),
+            value=clamp_date(max_date - timedelta(days=365), min_date, max_date),
             min_value=min_date,
             max_value=max_date,
             key="wf_start"
@@ -10090,7 +10101,7 @@ elif page == "Naked Opens":
         
         start_date_no = st.date_input(
             "Start Date",
-            value=max_date - timedelta(days=365),
+            value=clamp_date(max_date - timedelta(days=365), min_date, max_date),
             min_value=min_date,
             max_value=max_date,
             key="no_start"
@@ -10540,7 +10551,7 @@ elif page == "Gap Fills":
         
         start_date_gf = st.date_input(
             "Start Date",
-            value=max_date - timedelta(days=365),
+            value=clamp_date(max_date - timedelta(days=365), min_date, max_date),
             min_value=min_date,
             max_value=max_date,
             key="gf_start"
@@ -11065,7 +11076,7 @@ elif page == "Weekend Breaks":
         max_date = df_15m.index.max().date()
         start_date_wb = st.date_input(
             "Start Date",
-            value=max_date - timedelta(days=365),
+            value=clamp_date(max_date - timedelta(days=365), min_date, max_date),
             min_value=min_date,
             max_value=max_date,
             key="wb_start"
@@ -11579,7 +11590,7 @@ elif page == "Round Numbers Front Run":
         
         start_date_rnr = st.date_input(
             "Start Date",
-            value=max_date - timedelta(days=365),
+            value=clamp_date(max_date - timedelta(days=365), min_date, max_date),
             min_value=min_date,
             max_value=max_date,
             key="rnr_start"
@@ -11878,7 +11889,7 @@ elif page == "Quartile Opens":
         
         start_date_qo = st.date_input(
             "Start Date",
-            value=max_date - timedelta(days=365),
+            value=clamp_date(max_date - timedelta(days=365), min_date, max_date),
             min_value=min_date,
             max_value=max_date,
             key="qo_start"
