@@ -3,3 +3,5 @@ pandas
 plotly
 numpy
 psycopg2-binary
+scikit-learn
+joblib
