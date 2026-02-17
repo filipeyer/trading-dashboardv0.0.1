@@ -1264,6 +1264,12 @@ def load_data(exchange='binance', symbol='BTC/USDT'):
 
     return df, daily
 
+# Load data BEFORE sidebar so last_updated is available
+selected_exchange = st.session_state.get('selected_exchange', 'binance')
+selected_symbol = st.session_state.get('selected_symbol', 'BTC/USDT')
+df_15m, df_daily = load_data(selected_exchange, selected_symbol)
+last_updated = df_15m.index.max()
+
 # Sidebar
 with st.sidebar:
     st.markdown("<div class='sidebar-brand'>Vectora</div>", unsafe_allow_html=True)
@@ -1318,14 +1324,6 @@ with st.sidebar:
     # removed sidebar info box
 
 page = st.session_state.current_page
-
-# Get selected exchange/symbol from session state
-selected_exchange = st.session_state.get('selected_exchange', 'binance')
-selected_symbol = st.session_state.get('selected_symbol', 'BTC/USDT')
-
-# Load data BEFORE sidebar so last_updated is available
-df_15m, df_daily = load_data(selected_exchange, selected_symbol)
-last_updated = df_15m.index.max()
 
 # Default lookback for pages that still use it (will be moved to individual pages)
 lookback = 365
