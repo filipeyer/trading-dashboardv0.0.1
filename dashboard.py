@@ -1268,6 +1268,28 @@ def load_data(exchange='binance', symbol='BTC/USDT'):
 with st.sidebar:
     st.markdown("<div class='sidebar-brand'>Vectora</div>", unsafe_allow_html=True)
 
+    # Last updated box
+    st.markdown(
+        f"""
+        <div style='
+            background: #1a1a2e;
+            border: 1px solid #2d2d44;
+            border-radius: 8px;
+            padding: 10px 14px;
+            margin: 8px 0 16px 0;
+        '>
+            <div style='color: #888; font-size: 11px; margin-bottom: 4px;'>LAST UPDATED</div>
+            <div style='color: #00d4aa; font-size: 13px; font-weight: 600;'>
+                {last_updated.strftime('%b %d, %Y')}
+            </div>
+            <div style='color: #aaa; font-size: 11px;'>
+                {last_updated.strftime('%H:%M UTC')}
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
     st.markdown("<div class='sidebar-section'>Navigation</div>", unsafe_allow_html=True)
     
     pages = [
@@ -1297,11 +1319,11 @@ with st.sidebar:
 
 page = st.session_state.current_page
 
-# Get selected exchange/symbol from session state (set by analysis controls on each page)
+# Get selected exchange/symbol from session state
 selected_exchange = st.session_state.get('selected_exchange', 'binance')
 selected_symbol = st.session_state.get('selected_symbol', 'BTC/USDT')
 
-# Load data based on selected exchange/symbol
+# Load data BEFORE sidebar so last_updated is available
 df_15m, df_daily = load_data(selected_exchange, selected_symbol)
 last_updated = df_15m.index.max()
 
