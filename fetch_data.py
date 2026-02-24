@@ -8,15 +8,21 @@ import sys
 import time
 
 # ============================================================================
-# DATABASE CONNECTION
-# Reads from environment variable on GitHub Actions
-# Falls back to hardcoded string on your laptop
+# DATABASE CONNECTION - WITH DEBUG OUTPUT
 # ============================================================================
 
 CONNECTION_STRING = os.getenv(
     'DATABASE_URL',
     'postgresql://postgres.ffpspjiznmupxassxxxs:ZjjebPPo4b2U9ci@aws-1-eu-west-1.pooler.supabase.com:5432/postgres'
 )
+
+# DEBUG: Show what we're trying to connect to (hide password)
+if CONNECTION_STRING:
+    debug_str = CONNECTION_STRING.replace(':ZjjebPPo4b2U9ci@', ':***PASSWORD***@')
+    print(f"🔍 DEBUG: Connection string = {debug_str}")
+    print(f"🔍 DEBUG: DATABASE_URL env var = {'SET' if os.getenv('DATABASE_URL') else 'NOT SET'}")
+else:
+    print("🔍 DEBUG: CONNECTION_STRING is None or empty!")
 
 # ============================================================================
 # EXCHANGE CONFIGURATION
@@ -52,10 +58,12 @@ INITIAL_LOOKBACK_DAYS = 30
 
 def connect_to_database():
     try:
+        print(f"🔍 DEBUG: Attempting connection...")
         conn = psycopg2.connect(CONNECTION_STRING)
         return conn
     except Exception as e:
         print(f"❌ Database connection failed: {e}")
+        print(f"🔍 DEBUG: Full error type: {type(e).__name__}")
         sys.exit(1)
 
 def get_last_timestamp(conn, exchange, symbol, timeframe):
