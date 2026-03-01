@@ -366,6 +366,12 @@ st.markdown("""
     .st-key-qo_rolling_window [data-baseweb="input"],
     .st-key-qo_rolling_window [data-baseweb="base-input"],
     .st-key-qo_rolling_window input,
+    [data-testid="stNumberInput"] input[id*="sp_rolling_window"],
+    .st-key-sp_rolling_window [data-baseweb="input"],
+    .st-key-sp_rolling_window [data-baseweb="base-input"],
+    .st-key-sp_rolling_window input {
+        background-color: #111111 !important;
+    }
     [data-testid="stNumberInput"] input[id*="qo_bars_before"],
     [data-testid="stNumberInput"] input[id*="qo_bars_after"],
     .st-key-qo_bars_before [data-baseweb="input"],
@@ -578,6 +584,41 @@ st.markdown("""
         background-color: #111111 !important;
     }
 
+    /* Daily Pivots chart controls: Bars Before/After */
+    .st-key-dp_bars_before [data-baseweb="input"],
+    .st-key-dp_bars_before [data-baseweb="base-input"],
+    .st-key-dp_bars_before input,
+    .st-key-dp_bars_after [data-baseweb="input"],
+    .st-key-dp_bars_after [data-baseweb="base-input"],
+    .st-key-dp_bars_after input {
+        background-color: #111111 !important;
+        min-height: 46px !important;
+        height: 46px !important;
+    }
+    /* Session TPO chart controls: Bars Before/After Day + nav buttons */
+    .st-key-session_tpo_bars_before [data-baseweb="input"],
+    .st-key-session_tpo_bars_before [data-baseweb="base-input"],
+    .st-key-session_tpo_bars_before input,
+    .st-key-session_tpo_bars_after [data-baseweb="input"],
+    .st-key-session_tpo_bars_after [data-baseweb="base-input"],
+    .st-key-session_tpo_bars_after input,
+    [data-testid="stNumberInput"] input[aria-label="Bars Before Day"],
+    [data-testid="stNumberInput"] input[aria-label="Bars After Day"] {
+        background-color: #111111 !important;
+        min-height: 46px !important;
+        height: 46px !important;
+    }
+
+    .st-key-tpo_prev_day [data-testid="stButton"] > button,
+    .st-key-tpo_next_day [data-testid="stButton"] > button,
+    .st-key-tpo_prev_day button,
+    .st-key-tpo_next_day button {
+        background-color: #111111 !important;
+        color: #FFFFFF !important;
+        border: 1px solid var(--grid-color) !important;
+        min-height: 46px !important;
+        height: 46px !important;
+    }
     /* OTF Selectbox: Show Pattern */
     div[data-baseweb="select"]:has(input[id*="otf_pattern_type"]),
     .st-key-otf_pattern_type [data-baseweb="select"],
@@ -922,10 +963,20 @@ if 'weekend_breaks_chart_index' not in st.session_state:
 
 if 'monday_range_chart_index' not in st.session_state:
     st.session_state.monday_range_chart_index = -1
+if 'daily_tpo_analyzed' not in st.session_state:
+    st.session_state.daily_tpo_analyzed = False
+
+if 'daily_tpo_results' not in st.session_state:
+    st.session_state.daily_tpo_results = None
+
+if 'daily_tpo_profile_index' not in st.session_state:
+    st.session_state.daily_tpo_profile_index = -1
+
 
 # Color scheme
 bg_color = "#000000"
 text_color = "#FFFFFF"
+text_secondary = "#A1A1AA"
 sidebar_bg = "#111111"
 plot_bg = "#000000"
 grid_color = "#1A1A1A"
@@ -1078,6 +1129,25 @@ def sync_vol_days_from_input():
     sync_vol_end_from_days()
 
 
+def sync_dr_total_from_slider():
+    st.session_state.dr_total = int(st.session_state.dr_lookback)
+
+
+def sync_dr_slider_from_total():
+    val = max(7, min(1825, int(st.session_state.dr_total)))
+    st.session_state.dr_total = val
+    st.session_state.dr_lookback = val
+
+
+def sync_sr_total_from_slider():
+    st.session_state.sr_total = int(st.session_state.sr_lookback)
+
+
+def sync_sr_slider_from_total():
+    val = max(7, min(1825, int(st.session_state.sr_total)))
+    st.session_state.sr_total = val
+    st.session_state.sr_lookback = val
+
 def winsorized_mean(values, lower_pct=5, upper_pct=95):
     if values is None or len(values) == 0:
         return None
@@ -1186,10 +1256,14 @@ def analyze_round_number_front_runs(df_15m, start_date, end_date, day_filter, ro
     return events, df_tf
 
 # ============================================================================
+# LOCAL DATA LOADING
+# ============================================================================
+
+# ============================================================================
 # DATABASE CONNECTION
 # ============================================================================
 
-CONNECTION_STRING = st.secrets["DATABASE_URL"] if "DATABASE_URL" in st.secrets else os.getenv("DATABASE_URL", "postgresql://postgres.ffpspjiznmupxassxxxs:ZjjebPPo4b2U9ci@aws-1-eu-west-1.pooler.supabase.com:5432/postgres")
+CONNECTION_STRING = st.secrets.get("DATABASE_URL", os.getenv("DATABASE_URL", "postgresql://postgres.ffpspjiznmupxassxxxs:ZjjebPPo4b2U9ci@aws-1-eu-west-1.pooler.supabase.com:5432/postgres"))
 
 @st.cache_data(ttl=900)  # Cache for 15 minutes
 def get_available_pairs():
@@ -1207,6 +1281,7 @@ def get_available_pairs():
     except Exception as e:
         st.error(f"Database connection failed: {e}")
         return pd.DataFrame(columns=['exchange', 'symbol'])
+
 
 @st.cache_data(ttl=900)  # Cache for 15 minutes
 def load_data(exchange='binance', symbol='BTC/USDT'):
@@ -1264,7 +1339,7 @@ def load_data(exchange='binance', symbol='BTC/USDT'):
 
     return df, daily
 
-# Load data BEFORE sidebar so last_updated is available
+# Preload data so sidebar can show "Last Updated"
 selected_exchange = st.session_state.get('selected_exchange', 'binance')
 selected_symbol = st.session_state.get('selected_symbol', 'BTC/USDT')
 df_15m, df_daily = load_data(selected_exchange, selected_symbol)
@@ -1320,7 +1395,7 @@ with st.sidebar:
     if selected_page != st.session_state.current_page:
         st.session_state.current_page = selected_page
         st.rerun()
-    
+
     # removed sidebar info box
 
 page = st.session_state.current_page
@@ -1345,6 +1420,33 @@ if pivot_page_mode:
     if 'pivot_section' not in st.session_state:
         st.session_state.pivot_section = 'Session'
     
+
+    selected_pivot_btn = {
+        'Session': 'pivot_btn_session',
+        'Daily': 'pivot_btn_daily',
+        'Weekly': 'pivot_btn_weekly',
+        'Monthly': 'pivot_btn_monthly',
+    }.get(st.session_state.pivot_section, 'pivot_btn_session')
+
+    st.markdown(f"""
+    <style>
+    [data-testid="stButton"] button[id*="pivot_btn_"] {{
+        background-color: #181818 !important;
+        color: #FFFFFF !important;
+        border: 1px solid #2A2A2A !important;
+        box-shadow: none !important;
+    }}
+    [data-testid="stButton"] button[id*="pivot_btn_"]:hover {{
+        background-color: #1A1A1A !important;
+        border-color: #3A3A3A !important;
+    }}
+    [data-testid="stButton"] button[id*="{selected_pivot_btn}"] {{
+        background-color: #181818 !important;
+        border: 1px solid #FF8B3D !important;
+        color: #FFFFFF !important;
+    }}
+    </style>
+    """, unsafe_allow_html=True)
     # Create 4 columns for navigation boxes
     col1, col2, col3, col4 = st.columns(4, gap="medium")
     
@@ -1749,6 +1851,198 @@ def analyze_session_pivots(df_15m, start_date, end_date, day_filter, session, ti
     
     return results
 
+def render_pivot_time_summary(scope_label, current_bucket, p1_values, p2_values):
+    def _normalize_bucket(value):
+        if pd.isna(value):
+            return None
+        s = str(value).strip()
+        if not s:
+            return None
+
+        # Normalize hourly labels: 0, 0.0, and 00:00 should match the same bucket.
+        if ':' in s:
+            parts = s.split(':')
+            if len(parts) >= 2 and parts[0].lstrip('-').isdigit() and parts[1].isdigit():
+                hour = int(parts[0])
+                minute = int(parts[1])
+                if 0 <= hour <= 23 and 0 <= minute <= 59:
+                    if minute == 0:
+                        return str(hour)
+                    return f"{hour:02d}:{minute:02d}"
+            return s
+
+        try:
+            num = float(s)
+            if num.is_integer() and 0 <= int(num) <= 23:
+                return str(int(num))
+        except Exception:
+            pass
+
+        return s
+
+    def _display_bucket(value):
+        if pd.isna(value):
+            return "N/A"
+        s = str(value).strip()
+        if not s:
+            return "N/A"
+
+        if ':' in s:
+            parts = s.split(':')
+            if len(parts) >= 2 and parts[0].lstrip('-').isdigit() and parts[1].isdigit():
+                hour = int(parts[0])
+                minute = int(parts[1])
+                if 0 <= hour <= 23 and 0 <= minute <= 59:
+                    return f"{hour:02d}:{minute:02d}"
+
+        try:
+            num = float(s)
+            if num.is_integer() and 0 <= int(num) <= 23:
+                return f"{int(num):02d}:00"
+        except Exception:
+            pass
+
+        return s
+
+    p1_series = pd.Series(p1_values).dropna().apply(_normalize_bucket).dropna()
+    p2_series = pd.Series(p2_values).dropna().apply(_normalize_bucket).dropna()
+    sample_count = int(min(len(p1_series), len(p2_series)))
+
+    if sample_count == 0:
+        return
+
+    target_bucket = _normalize_bucket(current_bucket)
+    target_bucket_display = _display_bucket(current_bucket)
+    if target_bucket is None:
+        return
+
+    unique_buckets = max(1, pd.concat([p1_series, p2_series], ignore_index=True).nunique())
+    baseline_pct = 100.0 / unique_buckets
+
+    p1_prob = float((p1_series == target_bucket).mean() * 100)
+    p2_prob = float((p2_series == target_bucket).mean() * 100)
+
+    if p1_prob <= baseline_pct * 0.9:
+        flip_status = "Low"
+        flip_bg = "#163d25"
+    elif p1_prob <= baseline_pct * 1.25:
+        flip_status = "Moderate"
+        flip_bg = "#4a3c10"
+    else:
+        flip_status = "High"
+        flip_bg = "#4a1f1f"
+
+    if p2_prob >= baseline_pct * 1.25:
+        p2_status = "Likely"
+        p2_bg = "#163d25"
+    elif p2_prob >= baseline_pct * 0.9:
+        p2_status = "Unclear"
+        p2_bg = "#4a3c10"
+    else:
+        p2_status = "Unlikely"
+        p2_bg = "#4a1f1f"
+
+    warning_items = []
+    if sample_count < 60:
+        warning_items.append(f"Thin sample ({sample_count})")
+    if abs(p2_prob - p1_prob) < max(2.5, baseline_pct * 0.15):
+        warning_items.append("P1/P2 probabilities are tightly clustered")
+    if p2_prob < baseline_pct * 0.75:
+        warning_items.append("P2 probability is below typical baseline")
+
+    if warning_items:
+        warning_bg = "#4a3c10"
+        warning_text = " | ".join(warning_items)
+    else:
+        warning_bg = "#163d25"
+        warning_text = "No material time warning"
+
+    st.markdown(
+        f"""
+        <div style=\"background:#111111;border:1px solid {grid_color};border-radius:10px;padding:12px 14px;margin:10px 0 14px 0;\">
+            <div style=\"font-weight:700;color:{text_color};font-size:18px;\">Time Statistics Summary - {scope_label}</div>
+            <div style=\"color:{text_secondary};font-size:13px;margin-top:3px;\">Current Bucket: {target_bucket_display}</div>
+            <table style=\"width:100%;margin-top:10px;border-collapse:collapse;font-size:14px;\">
+                <tr>
+                    <th style=\"text-align:left;padding:8px;border-bottom:1px solid {grid_color};\">Name</th>
+                    <th style=\"text-align:left;padding:8px;border-bottom:1px solid {grid_color};\">Time Statistics Summary</th>
+                </tr>
+                <tr style=\"background:{flip_bg};\">
+                    <td style=\"padding:9px;border-bottom:1px solid {grid_color};\">P1/P2 Flip Risk</td>
+                    <td style=\"padding:9px;border-bottom:1px solid {grid_color};\">{flip_status} - {p1_prob:.1f}% of samples printed P1 at {target_bucket_display}</td>
+                </tr>
+                <tr style=\"background:{p2_bg};\">
+                    <td style=\"padding:9px;border-bottom:1px solid {grid_color};\">P2 Probability</td>
+                    <td style=\"padding:9px;border-bottom:1px solid {grid_color};\">{p2_status} - {p2_prob:.1f}% of samples printed P2 at {target_bucket_display}</td>
+                </tr>
+                <tr style=\"background:{warning_bg};\">
+                    <td style=\"padding:9px;\">Additional Warnings</td>
+                    <td style=\"padding:9px;\">{warning_text}</td>
+                </tr>
+            </table>
+            <div style=\"color:#22C55E;font-style:italic;font-size:13px;margin-top:8px;\">{sample_count} data points used</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def get_current_utc_timestamp():
+    """Return current UTC timestamp without tz info for consistent formatting."""
+    now_utc = pd.Timestamp.utcnow()
+    return now_utc.tz_localize(None) if getattr(now_utc, 'tzinfo', None) is not None else now_utc
+
+
+def map_hour_to_session(hour, ny_label='NY'):
+    if 0 <= hour < 6:
+        return 'Asia'
+    if 6 <= hour < 12:
+        return 'London'
+    if 12 <= hour < 20:
+        return ny_label
+    return 'Close'
+
+
+def get_live_hour_bucket():
+    now_utc = get_current_utc_timestamp()
+    return f"{now_utc.hour:02d}:00"
+
+
+def get_live_session_bucket(ny_label='NY'):
+    now_utc = get_current_utc_timestamp()
+    return map_hour_to_session(now_utc.hour, ny_label=ny_label)
+
+
+def get_live_interval_bucket_for_session(session_name, timeframe):
+    """Return a live UTC interval bucket aligned to timeframe and constrained to selected session."""
+    sessions = {
+        'Asia': (0, 6),
+        'London': (6, 12),
+        'New York': (12, 20),
+        'Close': (20, 24),
+    }
+
+    now_utc = get_current_utc_timestamp()
+    start_h, end_h = sessions.get(session_name, (0, 24))
+
+    if timeframe == '15m':
+        step = 15
+    elif timeframe == '30m':
+        step = 30
+    else:
+        step = 60
+
+    minute = (now_utc.minute // step) * step if step < 60 else 0
+
+    # Use live hour if we're in that session; otherwise use session start hour.
+    if start_h <= now_utc.hour < end_h:
+        hour = now_utc.hour
+    else:
+        hour = start_h
+        if step == 60:
+            minute = 0
+
+    return f"{hour:02d}:{minute:02d}"
 def analyze_wick_fills(df_15m, start_date, end_date, timeframe, method, min_wick_pct, 
                        partial_threshold, wick_direction, day_filter, session_filter, max_lookforward):
     """Analyze large wick fills and track partial/full fill statistics"""
@@ -2723,7 +3017,7 @@ def analyze_gap_fills(df_15m, start_date, end_date, gap_end_time, gap_start_time
     
     return results
 
-def analyze_quartile_opens(df_15m, start_date, end_date, timeframe, day_filter, session_filter):
+def analyze_quartile_opens(df_15m, start_date, end_date, timeframe, day_filter, session_filter, sweep_ref_timeframe='15m'):
     """Analyze quartile opens - track if X candle sweeps X-1 high/low when opening in upper/lower quartile"""
     
     # Resample data based on timeframe
@@ -2784,6 +3078,25 @@ def analyze_quartile_opens(df_15m, start_date, end_date, timeframe, day_filter, 
     
     # CRITICAL: Keep unfiltered version for sweep checking
     df_resampled_full = df_resampled.copy()
+    # Lower-timeframe reference used to refine sweep timestamp/hour distribution.
+    sweep_tf_map = {
+        '15m': '15min',
+        '30m': '30min',
+        '1h': '1H',
+        '4h': '4H',
+        '1D': '1D',
+        '1W': 'W-SUN',
+        '1M': 'M'
+    }
+    sweep_rule = sweep_tf_map.get(sweep_ref_timeframe, '15min')
+
+    if sweep_rule == '15min':
+        df_sweep_ref = df_15m.copy()
+    else:
+        df_sweep_ref = df_15m.resample(sweep_rule).agg({
+            'Open': 'first', 'High': 'max', 'Low': 'min', 'Close': 'last'
+        }).dropna()
+
     
     results = {
         'times': [],
@@ -2915,19 +3228,28 @@ def analyze_quartile_opens(df_15m, start_date, end_date, timeframe, day_filter, 
                     sweep_time = df_resampled_full.index[j]
                     sweep_hour = sweep_time.hour
                     break
-        # Refine sweep timestamp/hour on raw 15m data so distribution reflects actual UTC sweep hour
+
+        # Refine sweep timestamp/hour on selected lower timeframe so distribution reflects intraday UTC hour.
         if swept:
-            raw_end = sweep_time if sweep_time is not None else df_resampled_full.index[lookforward_end - 1]
-            raw_window = df_15m[(df_15m.index >= x_time) & (df_15m.index <= raw_end)]
+            if timeframe in ['15m', '30m', '1h', 'Session', 'Daily']:
+                sweep_window_end = x_time + pd.Timedelta(days=1)
+            elif timeframe == 'Weekly':
+                sweep_window_end = x_time + pd.Timedelta(days=7)
+            elif timeframe == 'Monthly':
+                sweep_window_end = x_time + pd.DateOffset(months=1)
+            else:
+                sweep_window_end = x_time + pd.Timedelta(days=1)
 
-            if len(raw_window) > 0:
+            ref_window = df_sweep_ref[(df_sweep_ref.index >= x_time) & (df_sweep_ref.index < sweep_window_end)]
+
+            if len(ref_window) > 0:
                 if is_upper:
-                    raw_hits = raw_window[raw_window["High"] >= target_level]
+                    ref_hits = ref_window[ref_window['High'] >= target_level]
                 else:
-                    raw_hits = raw_window[raw_window["Low"] <= target_level]
+                    ref_hits = ref_window[ref_window['Low'] <= target_level]
 
-                if len(raw_hits) > 0:
-                    first_hit_time = raw_hits.index[0]
+                if len(ref_hits) > 0:
+                    first_hit_time = ref_hits.index[0]
                     sweep_time = first_hit_time
                     sweep_hour = first_hit_time.hour
 
@@ -2990,6 +3312,32 @@ def calculate_atr(df, period=30):
     
     return atr.iloc[-1]
 
+def calculate_avg_range_since_dopen_30m(df_15m, period_end):
+    """Average 30m candle range from day open (00:00 UTC) through period_end."""
+    if df_15m is None or len(df_15m) == 0:
+        return 100.0
+
+    day_start = pd.Timestamp(period_end.date())
+    data_slice = df_15m[(df_15m.index >= day_start) & (df_15m.index <= period_end)]
+    if len(data_slice) == 0:
+        return 100.0
+
+    data_30m = data_slice.resample('30min').agg({
+        'Open': 'first',
+        'High': 'max',
+        'Low': 'min',
+        'Close': 'last'
+    }).dropna()
+
+    if len(data_30m) == 0:
+        return 100.0
+
+    avg_range = (data_30m['High'] - data_30m['Low']).mean()
+    if pd.isna(avg_range) or avg_range <= 0:
+        return 100.0
+
+    return float(avg_range)
+
 def round_to_tick(price, tick_size):
     """Round price to nearest tick"""
     # Validate inputs
@@ -3002,12 +3350,10 @@ def build_tpo_profile(session_data, tick_size):
     """Build TPO profile for a session"""
     
     profile = {}
-    letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
+    # Use extended letters so 15m NY session (32 bars) doesn't truncate at 26.
+    letters = generate_tpo_letters(len(session_data))
     
     for idx, (timestamp, row) in enumerate(session_data.iterrows()):
-        if idx >= len(letters):
-            break
-        
         letter = letters[idx]
         high = row['High']
         low = row['Low']
@@ -3024,7 +3370,7 @@ def build_tpo_profile(session_data, tick_size):
     
     return profile
 
-def analyze_tpo_profile(profile):
+def analyze_tpo_profile(profile, blocks_at_extreme=2):
     """Analyze TPO profile for poor highs/lows - POC/VAH/VAL removed per user request"""
     
     if not profile:
@@ -3038,9 +3384,9 @@ def analyze_tpo_profile(profile):
     tpos_at_high = len(profile[session_high])
     tpos_at_low = len(profile[session_low])
     
-    # Poor high/low: 2+ TPO blocks at the extreme price level only
-    poor_high_level = session_high if tpos_at_high >= 2 else None
-    poor_low_level = session_low if tpos_at_low >= 2 else None
+    # Poor high/low: blocks_at_extreme+ TPO blocks at the extreme price level
+    poor_high_level = session_high if tpos_at_high >= blocks_at_extreme else None
+    poor_low_level = session_low if tpos_at_low >= blocks_at_extreme else None
     is_poor_high = poor_high_level is not None
     is_poor_low = poor_low_level is not None
     
@@ -3060,7 +3406,6 @@ def analyze_tpo_profile(profile):
         'is_poor_low': is_poor_low,
         'range': price_range
     }
-
 def check_sweep(poor_price, is_high, future_sessions, tick_size):
     """Check if poor extreme was swept in future sessions"""
     
@@ -3310,9 +3655,9 @@ def create_tpo_histogram_shapes(profile, chart_start_time, chart_width_minutes=1
                 type="rect",
                 x0=chart_start_time,
                 x1=bar_end_time,
-                y0=price - 20,  # Bar thickness
+                y0=price - 20,
                 y1=price + 20,
-                fillcolor='rgba(100, 149, 237, 0.6)',  # Cornflower blue
+                fillcolor='rgba(100, 149, 237, 0.6)',
                 line=dict(color='rgba(100, 149, 237, 0.9)', width=0.5),
                 layer='below'
             )
@@ -3332,23 +3677,29 @@ def create_tpo_histogram_shapes(profile, chart_start_time, chart_width_minutes=1
                 borderpad=1
             )
         )
+def analyze_session_tpo(
+    df_15m,
+    start_date,
+    end_date,
+    day_filter,
+    session_filter,
+    tpo_block_size,
+    tick_mode,
+    manual_tick,
+    atr_multiplier,
+    sessions_to_track,
+    blocks_at_extreme=2,
+):
+    """Main TPO analysis function with average 30m range since day open for auto tick sizing."""
     
-    return shapes, annotations
-
-def analyze_session_tpo(df_15m, start_date, end_date, day_filter, session_filter, tpo_block_size, tick_mode, manual_tick, atr_multiplier, sessions_to_track):
-    """Main TPO analysis function - FIXED with adjustable ATR multiplier"""
-    
-    df_tpo_30m = df_15m.resample('30min').agg({
-        'Open': 'first',
-        'High': 'max',
-        'Low': 'min',
-        'Close': 'last',
-        'Volume': 'sum'
-    }).dropna()
-    atr_period = 20
-
     if tpo_block_size == "30m":
-        df_tpo = df_tpo_30m.copy()
+        df_tpo = df_15m.resample('30min').agg({
+            'Open': 'first',
+            'High': 'max',
+            'Low': 'min',
+            'Close': 'last',
+            'Volume': 'sum'
+        }).dropna()
     else:
         df_tpo = df_15m.copy()
     
@@ -3372,12 +3723,6 @@ def analyze_session_tpo(df_15m, start_date, end_date, day_filter, session_filter
                 (df_tpo.index.date == date.date()) &
                 (df_tpo.index.hour >= start_hour) &
                 (df_tpo.index.hour < end_hour)
-            ]
-
-            session_data_30m = df_tpo_30m[
-                (df_tpo_30m.index.date == date.date()) &
-                (df_tpo_30m.index.hour >= start_hour) &
-                (df_tpo_30m.index.hour < end_hour)
             ]
             
             if len(session_data) > 0:
@@ -3404,22 +3749,22 @@ def analyze_session_tpo(df_15m, start_date, end_date, day_filter, session_filter
         if len(session_data) < 3:
             continue
         
-        # FIXED: Use adjustable ATR multiplier (not hardcoded 1.5)
-        if tick_mode == "Auto":
-            atr_source = session_data_30m if len(session_data_30m) > 0 else session_data
-            atr = calculate_atr(atr_source, atr_period)
+        if str(tick_mode).startswith("Auto"):
+            period_end = session_data.index[-1]
+            atr = calculate_avg_range_since_dopen_30m(df_15m, period_end)
             tick_size = atr * atr_multiplier
-            
-            # Validate tick_size
             if pd.isna(tick_size) or tick_size <= 0:
-                tick_size = 100.0  # Default fallback
+                tick_size = 100.0
         else:
             tick_size = manual_tick
+            atr = None
         
         tick_size = max(float(tick_size), 1.0)
         
-        profile_analysis = analyze_tpo_profile(build_tpo_profile(session_data, tick_size))
-        
+        profile_analysis = analyze_tpo_profile(
+            build_tpo_profile(session_data, tick_size),
+            blocks_at_extreme=blocks_at_extreme,
+        )
         if not profile_analysis:
             continue
         
@@ -3464,7 +3809,7 @@ def analyze_session_tpo(df_15m, start_date, end_date, day_filter, session_filter
             'session': session_name,
             'day_name': day_name,
             'tick_size': tick_size,
-            'atr': atr if tick_mode == "Auto" else None,
+            'atr': atr,
             'session_high': profile_analysis['session_high'],
             'session_low': profile_analysis['session_low'],
             'tpos_at_high': profile_analysis['tpos_at_high'],
@@ -3484,7 +3829,6 @@ def analyze_session_tpo(df_15m, start_date, end_date, day_filter, session_filter
         })
     
     return results
-
 # ============================================================================
 # DAILY PIVOTS PAGE  
 # ============================================================================
@@ -3642,6 +3986,12 @@ if page == "Daily Pivots" or (pivot_page_mode and pivot_section == "Daily"):
             
             total_days = len(results['dates'])
             
+            render_pivot_time_summary(
+                scope_label="Daily Pivots (Hourly)",
+                current_bucket=get_live_hour_bucket(),
+                p1_values=p1_hours,
+                p2_values=p2_hours,
+            )
             st.markdown("---")
             st.subheader("Daily High/Low Distribution by Hour")
             
@@ -3918,11 +4268,10 @@ if page == "Daily Pivots" or (pivot_page_mode and pivot_section == "Daily"):
                 
                 st.plotly_chart(fig_evolution_low, use_container_width=True)
             
-            st.markdown("---")
             st.subheader(f"Historical Highs/Lows at {hour_select_dp:02d}:00")
-            
+
             col1, col2, col3, col4 = st.columns(4)
-            
+
             with col1:
                 bars_before_dp = st.number_input(
                     "Bars Before",
@@ -3932,7 +4281,7 @@ if page == "Daily Pivots" or (pivot_page_mode and pivot_section == "Daily"):
                     step=1,
                     key="dp_bars_before"
                 )
-            
+
             with col2:
                 bars_after_dp = st.number_input(
                     "Bars After",
@@ -3942,25 +4291,40 @@ if page == "Daily Pivots" or (pivot_page_mode and pivot_section == "Daily"):
                     step=1,
                     key="dp_bars_after"
                 )
-            
+
             with col3:
                 high_low_filter = st.selectbox(
                     "Show",
-                    options=["Highs", "Lows"],
+                    options=["Highs", "Lows", "Both"],
                     key="dp_high_low_filter"
                 )
-            
+
             with col4:
                 pass  # Spacer
-            
+
             if high_low_filter == "Highs":
-                instances = [(results['dates'][i], results['high_hours'][i]) for i in range(len(results['dates'])) if results['high_hours'][i] == hour_select_dp]
+                instances = [
+                    (results['dates'][i], "High")
+                    for i in range(len(results['dates']))
+                    if results['high_hours'][i] == hour_select_dp
+                ]
+            elif high_low_filter == "Lows":
+                instances = [
+                    (results['dates'][i], "Low")
+                    for i in range(len(results['dates']))
+                    if results['low_hours'][i] == hour_select_dp
+                ]
             else:
-                instances = [(results['dates'][i], results['low_hours'][i]) for i in range(len(results['dates'])) if results['low_hours'][i] == hour_select_dp]
-            
+                instances = []
+                for i in range(len(results['dates'])):
+                    if results['high_hours'][i] == hour_select_dp:
+                        instances.append((results['dates'][i], "High"))
+                    if results['low_hours'][i] == hour_select_dp:
+                        instances.append((results['dates'][i], "Low"))
+
             if len(instances) > 0:
                 col5, col6 = st.columns([1, 1])
-                
+
                 with col5:
                     if st.button("◀ Previous", use_container_width=True, key="dp_prev", type="secondary"):
                         if st.session_state.daily_pivots_chart_index > 0:
@@ -3968,7 +4332,7 @@ if page == "Daily Pivots" or (pivot_page_mode and pivot_section == "Daily"):
                         else:
                             st.session_state.daily_pivots_chart_index = len(instances) - 1
                         st.rerun()
-                
+
                 with col6:
                     if st.button("Next ▶", use_container_width=True, key="dp_next"):
                         if st.session_state.daily_pivots_chart_index < len(instances) - 1:
@@ -3976,49 +4340,45 @@ if page == "Daily Pivots" or (pivot_page_mode and pivot_section == "Daily"):
                         else:
                             st.session_state.daily_pivots_chart_index = 0
                         st.rerun()
-                
+
                 current_idx = st.session_state.daily_pivots_chart_index
-                if current_idx == -1:
+                if current_idx == -1 or current_idx >= len(instances):
                     current_idx = len(instances) - 1
-                
-                selected_date = instances[current_idx][0]
-                
-                st.caption(f"Showing instance {current_idx + 1} of {len(instances)} | {selected_date.strftime('%Y-%m-%d')}")
-                
+
+                selected_date, selected_type = instances[current_idx]
+
+                st.caption(f"Showing {selected_type} instance {current_idx + 1} of {len(instances)} | {selected_date.strftime('%Y-%m-%d')}")
+
                 df_30m = df_15m.resample('30min').agg({
                     'Open': 'first',
                     'High': 'max',
                     'Low': 'min',
                     'Close': 'last'
                 }).dropna()
-                
+
                 day_30m = df_30m[df_30m.index.date == selected_date.date()]
                 target_hour_data = day_30m[day_30m.index.hour == hour_select_dp]
-                
+
                 if len(target_hour_data) > 0:
                     target_time = target_hour_data.index[0]
-                    
+
                     target_idx = df_30m.index.get_indexer([target_time], method='nearest')[0]
-                    
+
                     start_idx = max(0, target_idx - bars_before_dp)
                     end_idx = min(len(df_30m) - 1, target_idx + bars_after_dp)
-                    
+
                     chart_data = df_30m.iloc[start_idx:end_idx+1]
-                    
+
                     fig_candles = go.Figure()
-                    
-                    # Build hover text for OHLC data
+
                     hover_text = []
-                    
                     for idx, row in chart_data.iterrows():
                         is_up = row['Close'] > row['Open']
-                        # Highlight target candle with gold color
                         if idx == target_time:
                             color = highlight_color
                         else:
                             color = candle_up if is_up else candle_down
-                        
-                        # Collect hover text
+
                         hover_text.append(
                             f"Date: {idx}<br>"
                             f"Open: {row['Open']:.2f}<br>"
@@ -4026,7 +4386,7 @@ if page == "Daily Pivots" or (pivot_page_mode and pivot_section == "Daily"):
                             f"Low: {row['Low']:.2f}<br>"
                             f"Close: {row['Close']:.2f}"
                         )
-                        
+
                         fig_candles.add_trace(go.Bar(
                             x=[idx],
                             y=[abs(row['Close'] - row['Open'])],
@@ -4036,7 +4396,7 @@ if page == "Daily Pivots" or (pivot_page_mode and pivot_section == "Daily"):
                             showlegend=False,
                             hoverinfo='skip'
                         ))
-                        
+
                         fig_candles.add_trace(go.Scatter(
                             x=[idx, idx],
                             y=[row['Low'], row['High']],
@@ -4045,8 +4405,7 @@ if page == "Daily Pivots" or (pivot_page_mode and pivot_section == "Daily"):
                             showlegend=False,
                             hoverinfo='skip'
                         ))
-                    
-                    # Add invisible hover trace
+
                     fig_candles.add_trace(go.Scatter(
                         x=chart_data.index,
                         y=chart_data['Close'],
@@ -4056,9 +4415,9 @@ if page == "Daily Pivots" or (pivot_page_mode and pivot_section == "Daily"):
                         hoverinfo='text',
                         showlegend=False
                     ))
-                    
+
                     fig_candles.update_layout(
-                        title=f"{high_low_filter[:-1]} at {hour_select_dp:02d}:00 - {selected_date.strftime('%Y-%m-%d')}",
+                        title=f"{selected_type} at {hour_select_dp:02d}:00 - {selected_date.strftime('%Y-%m-%d')}",
                         plot_bgcolor=plot_bg,
                         paper_bgcolor=plot_bg,
                         font=dict(color=text_color),
@@ -4067,8 +4426,10 @@ if page == "Daily Pivots" or (pivot_page_mode and pivot_section == "Daily"):
                         height=500,
                         hovermode='x unified'
                     )
-                    
+
                     st.plotly_chart(fig_candles, use_container_width=True)
+
+            st.markdown("---")
             
             st.markdown("---")
     
@@ -4144,6 +4505,12 @@ if page == "Daily Pivots" or (pivot_page_mode and pivot_section == "Daily"):
             p2_sessions = pd.Series(results_session['p2_sessions'])
             
             total_days = len(results_session['dates'])
+            render_pivot_time_summary(
+                scope_label="Daily Pivots (Session)",
+                current_bucket=get_live_session_bucket(ny_label='NY'),
+                p1_values=p1_sessions,
+                p2_values=p2_sessions,
+            )
             
             st.markdown("---")
             st.subheader("Session Distribution")
@@ -5232,13 +5599,28 @@ if page == "High Hit Rate Levels":
                     col_pred1, col_pred2, col_pred3 = st.columns(3)
                     
                     with col_pred1:
-                        st.metric("Historical Hit Rate", f"{test_hist_rate:.1f}%")
-                    
+                        st.markdown(f"""
+                        <div class=\"metric-card\">
+                            <div class=\"metric-title\">Historical Hit Rate</div>
+                            <div class=\"metric-value\">{test_hist_rate:.1f}%</div>
+                        </div>
+                        """, unsafe_allow_html=True)
+
                     with col_pred2:
-                        st.metric("ML Predicted Probability", f"{ml_prob*100:.1f}%")
-                    
+                        st.markdown(f"""
+                        <div class=\"metric-card\">
+                            <div class=\"metric-title\">ML Predicted Probability</div>
+                            <div class=\"metric-value\">{ml_prob*100:.1f}%</div>
+                        </div>
+                        """, unsafe_allow_html=True)
+
                     with col_pred3:
-                        st.metric("Confidence", f"{ml_conf}")
+                        st.markdown(f"""
+                        <div class=\"metric-card\">
+                            <div class=\"metric-title\">Confidence</div>
+                            <div class=\"metric-value\">{ml_conf}</div>
+                        </div>
+                        """, unsafe_allow_html=True)
                     
                     # Interpretation
                 if ml_prob > 0.7:
@@ -5360,24 +5742,32 @@ if page == "High Hit Rate Levels":
                         filtered_pivots = [p for p in filtered_pivots if p['pivot_row']['hit']]
                     elif outcome_filter == 'Misses Only':
                         filtered_pivots = [p for p in filtered_pivots if not p['pivot_row']['hit']]
+                    # Additional filter: only keep pivots with MAE%% greater than distance input
+                    filtered_pivots = [
+                        p for p in filtered_pivots
+                        if pd.notna(p['pivot_row'].get('mae_pct')) and p['pivot_row'].get('mae_pct') > test_distance
+                    ]
                     
                     if len(filtered_pivots) == 0:
                         st.warning("No pivots match the selected filters.")
                     else:
                         # Navigation
                         col_nav1, col_nav2, col_nav3 = st.columns([1, 2, 1])
-                        
+
                         with col_nav1:
-                            if st.button("◀ Previous Pivot", key="pivot_browser_prev", type="secondary"):
+                            if st.button("◀ Previous Pivot", key="pivot_browser_prev", type="secondary", use_container_width=True):
                                 if st.session_state.pivot_browser_index > 0:
                                     st.session_state.pivot_browser_index -= 1
                                 st.rerun()
-                        
+
                         with col_nav2:
-                            st.write(f"**Pivot {st.session_state.pivot_browser_index + 1} of {len(filtered_pivots)}**")
-                        
+                            st.markdown(
+                                f"<div style='text-align:center; font-weight:700; font-size:22px;'>Pivot {st.session_state.pivot_browser_index + 1} of {len(filtered_pivots)}</div>",
+                                unsafe_allow_html=True
+                            )
+
                         with col_nav3:
-                            if st.button("Next Pivot ▶", key="pivot_browser_next", type="secondary"):
+                            if st.button("Next Pivot ▶", key="pivot_browser_next", type="secondary", use_container_width=True):
                                 if st.session_state.pivot_browser_index < len(filtered_pivots) - 1:
                                     st.session_state.pivot_browser_index += 1
                                 st.rerun()
@@ -5424,13 +5814,22 @@ if page == "High Hit Rate Levels":
                             
                             # Add pivot line
                             pivot_color = 'yellow' if current_pivot['position'] == 'Above' else 'cyan'
-                            fig_pivot.add_hline(
+                            fig_pivot.add_shape(
+                                type="line",
+                                x0=pivot_time,
+                                x1=chart_data.index[-1],
+                                y0=current_pivot['pivot'],
+                                y1=current_pivot['pivot'],
+                                line=dict(dash="dash", color=pivot_color, width=2)
+                            )
+                            fig_pivot.add_annotation(
+                                x=chart_data.index[-1],
                                 y=current_pivot['pivot'],
-                                line_dash="dash",
-                                line_color=pivot_color,
-                                line_width=2,
-                                annotation_text=f"Pivot: ${current_pivot['pivot']:.0f}",
-                                annotation_position="right"
+                                text=f"Pivot: ${current_pivot['pivot']:.0f}",
+                                showarrow=False,
+                                xanchor="right",
+                                yanchor="bottom",
+                                font=dict(color=pivot_color, size=11)
                             )
                             
                             # Add ML confidence annotation
@@ -5484,33 +5883,6 @@ if page == "High Hit Rate Levels":
                             
                             st.plotly_chart(fig_pivot, use_container_width=True)
                             
-                            # Pivot details
-                            st.markdown("---")
-                            st.subheader("Pivot Details")
-                            
-                            col_d1, col_d2, col_d3 = st.columns(3)
-                            
-                            with col_d1:
-                                st.write("**Timing:**")
-                                st.write(f"Date: {pivot_time.strftime('%Y-%m-%d')}")
-                                st.write(f"Time: {pivot_time.strftime('%H:%M')}")
-                                st.write(f"Day: {current_pivot['day_name']}")
-                            
-                            with col_d2:
-                                st.write("**Pivot Info:**")
-                                st.write(f"Price: ${current_pivot['pivot']:.2f}")
-                                st.write(f"Position: {current_pivot['position']}")
-                                st.write(f"Distance: {current_pivot_data['distance_pct']:.2f}%")
-                            
-                            with col_d3:
-                                st.write("**ML Prediction:**")
-                                st.write(f"Probability: {ml_prob*100:.1f}%")
-                                st.write(f"Confidence: {ml_conf}")
-                                outcome_text = "✅ HIT" if current_pivot['hit'] else "❌ MISS"
-                                st.write(f"Actual: {outcome_text}")
-                                if current_pivot['hit']:
-                                    st.write(f"Hit Hour: {current_pivot.get('hit_hour', 'N/A')}:00")
-                                    st.write(f"Bars to Hit: {current_pivot.get('bars_to_hit', 'N/A')}")
                         
                         else:
                             st.error("No chart data available for this pivot.")
@@ -5585,24 +5957,41 @@ if page == "High Hit Rate Levels":
             
             bucket_counts = bucket_counts.reindex([b for b in bucket_order if b in bucket_counts.index], fill_value=0)
             
-            colors_gradient = []
-            for i in range(len(bucket_counts)):
-                ratio = i / max(len(bucket_counts) - 1, 1)
-                if ratio < 0.5:
-                    r = int(0 + (255 * ratio * 2))
-                    g = 255
+            colors_mae = [
+                "#22C55E",  # Green (0-0.5% MAE - excellent)
+                "#4ADE80",  # Light green (0.5-1% - good)
+                "#FFB570",  # Light orange (1-1.5% - okay)
+                "#FF8B3D",  # Orange (1.5-2% - concerning)
+                "#E87B35",  # Dark orange (2-2.5% - bad)
+                "#EF4444",  # Red (2.5%+ - very bad)
+            ]
+
+            bucket_colors = []
+            for bucket_label in bucket_counts.index:
+                if bucket_label == "10+%":
+                    lower_bound = 10.0
                 else:
-                    r = 255
-                    g = int(255 - (255 * (ratio - 0.5) * 2))
-                color_hex = f"#{r:02x}{g:02x}00"
-                colors_gradient.append(color_hex)
-            
+                    lower_bound = float(str(bucket_label).split('-')[0].replace('%', ''))
+
+                if lower_bound < 0.5:
+                    bucket_colors.append(colors_mae[0])
+                elif lower_bound < 1.0:
+                    bucket_colors.append(colors_mae[1])
+                elif lower_bound < 1.5:
+                    bucket_colors.append(colors_mae[2])
+                elif lower_bound < 2.0:
+                    bucket_colors.append(colors_mae[3])
+                elif lower_bound < 2.5:
+                    bucket_colors.append(colors_mae[4])
+                else:
+                    bucket_colors.append(colors_mae[5])
+
             fig_mae = go.Figure(data=[
                 go.Bar(
                     x=bucket_counts.index,
                     y=bucket_counts.values,
                     marker=dict(
-                        color=colors_gradient,
+                        color=bucket_colors,
                         line=dict(color=grid_color, width=1)
                     ),
                     text=bucket_counts.values,
@@ -5610,7 +5999,7 @@ if page == "High Hit Rate Levels":
                     showlegend=False
                 )
             ])
-            
+
             fig_mae.update_layout(
                 title="MAE Before Level Hit",
                 xaxis_title="MAE Range",
@@ -5622,21 +6011,21 @@ if page == "High Hit Rate Levels":
                 yaxis=dict(showgrid=True, gridcolor=grid_color, color=text_color),
                 height=400
             )
-            
+
             st.plotly_chart(fig_mae, use_container_width=True)
-        
+
         if len(hour_hits) > 0 and hour_hits['hit_hour'].notna().any():
             st.markdown("---")
             st.subheader("Hour Distribution of Hits")
             st.caption("Which hours of the day do levels get hit?")
-            
+
             hour_hit_counts = hour_hits['hit_hour'].value_counts().sort_index()
-            
+
             fig_hour_dist = go.Figure(data=[
                 go.Bar(
                     x=[f"{int(h):02d}:00" for h in hour_hit_counts.index],
                     y=hour_hit_counts.values,
-                    marker_color=positive_color,
+                    marker_color="#D97531",
                     text=hour_hit_counts.values,
                     textposition='outside'
                 )
@@ -5657,49 +6046,7 @@ if page == "High Hit Rate Levels":
             st.plotly_chart(fig_hour_dist, use_container_width=True)
         
         st.markdown("---")
-        with st.expander("Raw Data", expanded=False):
-            display_data = hour_data_selected[['timestamp', 'position', 'pivot', 'current_price', 'hit', 'mae', 'mae_pct', 'hit_hour']].copy()
-            display_data['timestamp'] = display_data['timestamp'].dt.strftime('%Y-%m-%d %H:%M')
-            display_data['pivot'] = display_data['pivot'].round(2)
-            display_data['current_price'] = display_data['current_price'].round(2)
-            display_data['mae'] = display_data['mae'].round(2)
-            display_data['mae_pct'] = display_data['mae_pct'].round(2)
-            display_data['hit'] = display_data['hit'].map({True: 'Y', False: 'N'})
-            display_data['hit_hour'] = display_data['hit_hour'].apply(lambda x: f"{int(x):02d}:00" if pd.notna(x) else '-')
-            
-            display_data = display_data.rename(columns={
-                'timestamp': 'Time',
-                'position': 'A/B',
-                'pivot': 'Pivot Level',
-                'current_price': 'Price at Spawn',
-                'hit': 'Hit',
-                'mae': 'MAE',
-                'mae_pct': 'MAE %',
-                'hit_hour': 'Hour Hit'
-            })
-            
-            st.dataframe(display_data, use_container_width=True, height=400)
         
-        st.markdown("---")
-        st.subheader("Hit Rate Summary (All Hours)")
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.write("**Above Levels (Resistance - Pivot Above Price)**")
-            above_df = hit_rates_df[hit_rates_df['position'] == 'Above'][['hour', 'hit_rate', 'hit_count', 'miss_count', 'total_count']].copy()
-            above_df = above_df.rename(columns={'hit_rate': 'Hit Rate %', 'hit_count': 'Y', 'miss_count': 'N', 'total_count': 'Total'})
-            above_df['Hit Rate %'] = above_df['Hit Rate %'].round(1)
-            above_df['hour'] = above_df['hour'].apply(lambda x: f"{x:02d}:00")
-            st.dataframe(above_df.set_index('hour'), use_container_width=True, height=400)
-        
-        with col2:
-            st.write("**Below Levels (Support - Pivot Below Price)**")
-            below_df = hit_rates_df[hit_rates_df['position'] == 'Below'][['hour', 'hit_rate', 'hit_count', 'miss_count', 'total_count']].copy()
-            below_df = below_df.rename(columns={'hit_rate': 'Hit Rate %', 'hit_count': 'Y', 'miss_count': 'N', 'total_count': 'Total'})
-            below_df['Hit Rate %'] = below_df['Hit Rate %'].round(1)
-            below_df['hour'] = below_df['hour'].apply(lambda x: f"{x:02d}:00")
-            st.dataframe(below_df.set_index('hour'), use_container_width=True, height=400)
 
 # ============================================================================
 # ONE TIME FRAMING ANALYSIS
@@ -6164,41 +6511,31 @@ if page == "One Time Framing Analysis":
 
 elif page == "Daily Returns":
     render_page_header("Daily Returns Analysis")
-    # Exchange & Asset first
     render_exchange_asset_controls("dr")
-    
-    col1, col2 = st.columns(2)
-    with col1:
-        start_date_dr = st.date_input(
-            "Start Date",
-            value=datetime.now() - timedelta(days=365),
-            key="dr_start"
-        )
-    with col2:
-        end_date_dr = st.date_input(
-            "End Date",
-            value=datetime.now(),
-            key="dr_end"
-        )
-    
+
+    if 'dr_lookback' not in st.session_state:
+        st.session_state.dr_lookback = 365
+    if 'dr_total' not in st.session_state:
+        st.session_state.dr_total = 365
+
     col3, col4 = st.columns(2)
     with col3:
-        lookback_days_dr = st.slider(
+        st.slider(
             "Days Lookback",
             min_value=7,
             max_value=1825,
-            value=365,
             step=1,
-            key="dr_lookback"
+            key="dr_lookback",
+            on_change=sync_dr_total_from_slider
         )
     with col4:
-        total_days_dr = st.number_input(
+        st.number_input(
             "Total Days",
             min_value=7,
             max_value=1825,
-            value=365,
             step=1,
-            key="dr_total"
+            key="dr_total",
+            on_change=sync_dr_slider_from_total
         )
 
     st.markdown(
@@ -6226,30 +6563,24 @@ elif page == "Daily Returns":
         """,
         unsafe_allow_html=True
     )
-    
-    # Use the most recent value (slider or input)
-    lookback_dr = total_days_dr if total_days_dr != 365 else lookback_days_dr
-    
-    # Recalculate recent_daily based on controls
-    recent_daily = df_daily[
-        (df_daily.index.date >= start_date_dr) & 
-        (df_daily.index.date <= end_date_dr)
-    ].last(f'{lookback_dr}D')
-    
+
+    lookback_dr = int(st.session_state.dr_total)
+    recent_daily = df_daily.last(f'{lookback_dr}D')
+
     st.markdown("---")
-    
+
     day_stats = recent_daily.groupby('day_name')['returns'].mean()
     day_order = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
     day_stats = day_stats.reindex([d for d in day_order if d in day_stats.index])
-    
+
     weekday_avg = recent_daily[~recent_daily['is_weekend']]['returns'].mean()
     weekend_avg = recent_daily[recent_daily['is_weekend']]['returns'].mean()
     day_stats_extended = day_stats.copy()
     day_stats_extended['W/d'] = weekday_avg
     day_stats_extended['W/e'] = weekend_avg
-    
+
     colors = [positive_color if val > 0 else negative_color for val in day_stats_extended.values]
-    
+
     fig1 = go.Figure(data=[
         go.Bar(
             x=day_stats_extended.index,
@@ -6261,54 +6592,54 @@ elif page == "Daily Returns":
             showlegend=False
         )
     ])
-    
+
     fig1.update_layout(
         plot_bgcolor=plot_bg,
         paper_bgcolor=plot_bg,
         font=dict(size=14, color=text_color),
         xaxis=dict(
-            title='', 
-            showgrid=False, 
-            showline=True, 
-            linewidth=1, 
-            linecolor=grid_color, 
+            title='',
+            showgrid=False,
+            showline=True,
+            linewidth=1,
+            linecolor=grid_color,
             color=text_color,
             tickfont=dict(color=text_color)
         ),
         yaxis=dict(
-            title='', 
-            showgrid=True, 
-            gridwidth=1, 
-            gridcolor=grid_color, 
-            zeroline=True, 
-            zerolinewidth=2, 
-            zerolinecolor=grid_color, 
-            ticksuffix='%', 
+            title='',
+            showgrid=True,
+            gridwidth=1,
+            gridcolor=grid_color,
+            zeroline=True,
+            zerolinewidth=2,
+            zerolinecolor=grid_color,
+            ticksuffix='%',
             color=text_color,
             tickfont=dict(color=text_color)
         ),
         height=500,
         margin=dict(l=50, r=50, t=30, b=50)
     )
-    
+
     st.plotly_chart(fig1, use_container_width=True)
-    
+
     st.subheader("Statistics")
-    
+
     stats_table = recent_daily.groupby('day_name')['returns'].agg([
         ('Mean %', 'mean'),
         ('Std Dev %', 'std'),
         ('Count', 'count')
     ]).round(3)
-    
+
     stats_table = stats_table.reindex([d for d in day_order if d in stats_table.index])
-    
+
     weekday_data = recent_daily[~recent_daily['is_weekend']]['returns']
     weekend_data = recent_daily[recent_daily['is_weekend']]['returns']
-    
+
     stats_table.loc['Weekday'] = [weekday_data.mean(), weekday_data.std(), len(weekday_data)]
     stats_table.loc['Weekend'] = [weekend_data.mean(), weekend_data.std(), len(weekend_data)]
-    
+
     st.dataframe(stats_table, use_container_width=True)
 
 # ============================================================================
@@ -6318,66 +6649,51 @@ elif page == "Daily Returns":
 elif page == "Session Returns":
     render_page_header("Session Returns Analysis")
     render_exchange_asset_controls("sr")
-    
-    col1, col2 = st.columns(2)
-    with col1:
-        start_date_sr = st.date_input(
-            "Start Date",
-            value=datetime.now() - timedelta(days=365),
-            key="sr_start"
-        )
-    with col2:
-        end_date_sr = st.date_input(
-            "End Date",
-            value=datetime.now(),
-            key="sr_end"
-        )
-    
+
+    if 'sr_lookback' not in st.session_state:
+        st.session_state.sr_lookback = 365
+    if 'sr_total' not in st.session_state:
+        st.session_state.sr_total = 365
+
     col3, col4 = st.columns(2)
     with col3:
-        lookback_days_sr = st.slider(
+        st.slider(
             "Days Lookback",
             min_value=7,
             max_value=1825,
-            value=365,
             step=1,
-            key="sr_lookback"
+            key="sr_lookback",
+            on_change=sync_sr_total_from_slider
         )
     with col4:
-        total_days_sr = st.number_input(
+        st.number_input(
             "Total Days",
             min_value=7,
             max_value=1825,
-            value=365,
             step=1,
-            key="sr_total"
+            key="sr_total",
+            on_change=sync_sr_slider_from_total
         )
-    
-    # Use the most recent value (slider or input)
-    lookback_sr = total_days_sr if total_days_sr != 365 else lookback_days_sr
-    
-    # Recalculate recent_15m based on controls
-    recent_15m = df_15m[
-        (df_15m.index.date >= start_date_sr) & 
-        (df_15m.index.date <= end_date_sr)
-    ].last(f'{lookback_sr}D')
-    
+
+    lookback_sr = int(st.session_state.sr_total)
+    recent_15m = df_15m.last(f'{lookback_sr}D')
+
     day_filter = st.multiselect(
         "Filter by Day of Week",
         options=['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'],
         default=['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'],
         key="sr_day_filter"
     )
-    
+
     st.markdown("---")
-    
+
     session_data = []
-    
+
     for session_name in ['Asia', 'London', 'NY', 'Close']:
         session_bars = recent_15m[recent_15m['session'] == session_name].copy()
         session_bars['day_name'] = session_bars.index.day_name()
         session_bars_filtered = session_bars[session_bars['day_name'].isin(day_filter)]
-        
+
         session_returns = []
         for date, group in session_bars_filtered.groupby(session_bars_filtered.index.date):
             if len(group) > 0:
@@ -6385,13 +6701,13 @@ elif page == "Session Returns":
                 session_close = group['Close'].iloc[-1]
                 ret = ((session_close - session_open) / session_open) * 100
                 session_returns.append(ret)
-        
+
         avg_return = sum(session_returns) / len(session_returns) if session_returns else 0
         session_data.append({'Session': session_name, 'Avg Return %': avg_return})
-    
+
     session_df = pd.DataFrame(session_data)
     colors_session = [positive_color if val > 0 else negative_color for val in session_df['Avg Return %']]
-    
+
     fig2 = go.Figure(data=[
         go.Bar(
             x=session_df['Session'],
@@ -6403,46 +6719,46 @@ elif page == "Session Returns":
             showlegend=False
         )
     ])
-    
+
     fig2.update_layout(
         plot_bgcolor=plot_bg,
         paper_bgcolor=plot_bg,
         font=dict(size=14, color=text_color),
         xaxis=dict(
-            title='', 
-            showgrid=False, 
-            showline=True, 
-            linewidth=1, 
-            linecolor=grid_color, 
+            title='',
+            showgrid=False,
+            showline=True,
+            linewidth=1,
+            linecolor=grid_color,
             color=text_color,
             tickfont=dict(color=text_color)
         ),
         yaxis=dict(
-            title='', 
-            showgrid=True, 
-            gridwidth=1, 
+            title='',
+            showgrid=True,
+            gridwidth=1,
             gridcolor=grid_color,
-            zeroline=True, 
-            zerolinewidth=2, 
-            zerolinecolor=grid_color, 
-            ticksuffix='%', 
+            zeroline=True,
+            zerolinewidth=2,
+            zerolinecolor=grid_color,
+            ticksuffix='%',
             color=text_color,
             tickfont=dict(color=text_color)
         ),
         height=500,
         margin=dict(l=50, r=50, t=30, b=50)
     )
-    
+
     st.plotly_chart(fig2, use_container_width=True)
-    
+
     st.subheader("Statistics")
-    
+
     session_stats = []
     for session_name in ['Asia', 'London', 'NY', 'Close']:
         session_bars = recent_15m[recent_15m['session'] == session_name].copy()
         session_bars['day_name'] = session_bars.index.day_name()
         session_bars_filtered = session_bars[session_bars['day_name'].isin(day_filter)]
-        
+
         session_returns = []
         for date, group in session_bars_filtered.groupby(session_bars_filtered.index.date):
             if len(group) > 0:
@@ -6450,14 +6766,14 @@ elif page == "Session Returns":
                 session_close = group['Close'].iloc[-1]
                 ret = ((session_close - session_open) / session_open) * 100
                 session_returns.append(ret)
-        
+
         session_stats.append({
             'Session': session_name,
             'Mean %': np.mean(session_returns) if session_returns else 0,
             'Std Dev %': np.std(session_returns) if session_returns else 0,
             'Count': len(session_returns)
         })
-    
+
     session_stats_df = pd.DataFrame(session_stats).set_index('Session')
     st.dataframe(session_stats_df.round(3), use_container_width=True)
 
@@ -6481,7 +6797,6 @@ elif page == "Session TPO":
         help="15m = Each 15-minute bar is one TPO block | 30m = Each 30-minute bar is one TPO block"
     )
 
-    
     col1, col2 = st.columns(2)
     
     with col1:
@@ -6502,16 +6817,16 @@ elif page == "Session TPO":
                 step=10.0,
                 key="tpo_manual_tick"
             )
-            atr_multiplier = 0.15  # Not used in manual mode
+            atr_multiplier = 0.125
         else:
-            manual_tick_size = 100.0  # Not used in auto mode
+            manual_tick_size = 100.0
             atr_multiplier = st.slider(
                 "ATR Multiplier",
                 min_value=0.05,
                 max_value=0.50,
-                value=0.15,
-                step=0.01,
-                help="Tick size = ATR(30m) × this multiplier",
+                value=0.125,
+                step=0.005,
+                help="Tick size = average 30m range since day open × this multiplier",
                 key="tpo_atr_multiplier"
             )
     
@@ -6565,6 +6880,16 @@ elif page == "Session TPO":
         help="How many future sessions to check for sweeps",
         key="tpo_sessions_track"
     )
+
+    blocks_at_extreme = st.slider(
+        "Blocks At Extreme",
+        min_value=1,
+        max_value=10,
+        value=2,
+        step=1,
+        help="Minimum TPO blocks at the session high/low to qualify as a poor high/low.",
+        key="tpo_blocks_at_extreme"
+    )
     
     analyze_tpo = st.button(
         "Analyze Session TPO",
@@ -6584,9 +6909,9 @@ elif page == "Session TPO":
                 tick_mode.split()[0],  # Extract "Auto" or "Manual"
                 manual_tick_size,
                 atr_multiplier,
-                sessions_to_track
+                sessions_to_track,
+                blocks_at_extreme=blocks_at_extreme
             )
-            
             st.session_state.tpo_analyzed = True
             st.session_state.tpo_results = results
             st.session_state.tpo_profile_index = -1
@@ -6922,12 +7247,20 @@ elif page == "Session TPO":
                     help="Number of bars to show after day end",
                     key="session_tpo_bars_after"
                 )
-            
             # Build day list from results
             day_list = sorted({r['date'].date() for r in results})
+            day_session_counts = {
+                d: sum(1 for r in results if r['date'].date() == d)
+                for d in day_list
+            }
+
             if 'tpo_day_index' not in st.session_state:
-                st.session_state.tpo_day_index = -1
-            
+                # Default to the most recent day with the maximum number of sessions
+                max_sessions = max(day_session_counts.values()) if day_session_counts else 0
+                candidate_days = [d for d in day_list if day_session_counts.get(d, 0) == max_sessions]
+                default_day = candidate_days[-1] if candidate_days else day_list[-1]
+                st.session_state.tpo_day_index = day_list.index(default_day)
+
             col1, col2 = st.columns(2)
             with col1:
                 if st.button("◀ Previous Day", use_container_width=True, key="tpo_prev_day", type="secondary"):
@@ -6937,20 +7270,20 @@ elif page == "Session TPO":
                         st.session_state.tpo_day_index = len(day_list) - 1
                     st.rerun()
             with col2:
-                if st.button("Next Day ▶", use_container_width=True, key="tpo_next_day"):
+                if st.button("Next Day ▶", use_container_width=True, key="tpo_next_day", type="secondary"):
                     if st.session_state.tpo_day_index < len(day_list) - 1:
                         st.session_state.tpo_day_index += 1
                     else:
                         st.session_state.tpo_day_index = 0
                     st.rerun()
-            
+
             day_idx = st.session_state.tpo_day_index
-            if day_idx == -1:
-                day_idx = len(day_list) - 1
             day_idx = max(0, min(day_idx, len(day_list) - 1))
             current_day = day_list[day_idx]
+
             day_sessions = [r for r in results if r['date'].date() == current_day]
-            
+            session_order = {'Asia': 0, 'London': 1, 'NY': 2, 'Close': 3}
+            day_sessions = sorted(day_sessions, key=lambda x: session_order.get(x['session'], 99))
             # Chart data for full day with bars before/after
             day_start = pd.Timestamp(current_day)
             day_end = day_start + timedelta(days=1)
@@ -6972,6 +7305,13 @@ elif page == "Session TPO":
             chart_data = chart_df[(chart_df.index >= chart_start) & (chart_df.index <= chart_end)]
             
             st.caption(f"Day {current_day.strftime('%Y-%m-%d')} | Sessions shown: {', '.join([r['session'] for r in day_sessions])}")
+
+            session_info_parts = []
+            for s in day_sessions:
+                atr_text = f"${s['atr']:.2f}" if s.get('atr') is not None else "N/A"
+                session_info_parts.append(f"{s['session']}: Tick ${s['tick_size']:.2f} | ATR {atr_text}")
+            if session_info_parts:
+                st.caption(" | ".join(session_info_parts))
             
             fig_profile = go.Figure()
             
@@ -7014,19 +7354,19 @@ elif page == "Session TPO":
             for r in day_sessions:
                 profile = r['profile_analysis']['profile']
                 sorted_prices = sorted(profile.keys(), reverse=True)
-            else:
+
                 profile_counts = {price: len(tpos) for price, tpos in profile.items()}
                 total_tpos = sum(profile_counts.values()) if profile_counts else 1
                 value_area = compute_value_area(profile_counts, value_area_pct=0.68)
                 tick_size = r['tick_size']
                 base_color_session = session_colors.get(r['session'], '#B5B5B5')
-                
+
                 session_data = r['session_data']
                 session_start = session_data.index[0]
-                
+
                 gap = tick_size * 0.08
                 block_width = timedelta(minutes=block_minutes)
-                
+
                 for price in sorted_prices:
                     count = profile_counts.get(price, 0)
                     if count <= 0:
@@ -7034,7 +7374,7 @@ elif page == "Session TPO":
                     base_color = "#B5B5B5" if price in value_area else base_color_session
                     factor = min(0.6, count / total_tpos)
                     block_color = blend_to_black(base_color, factor)
-                    
+
                     fig_profile.add_shape(
                         type="rect",
                         x0=session_start,
@@ -7044,7 +7384,7 @@ elif page == "Session TPO":
                         line=dict(color=grid_color, width=0.5),
                         fillcolor=block_color
                     )
-                
+
                 # Poor high/low rays for session
                 if r['is_poor_high']:
                     fig_profile.add_shape(
@@ -7064,7 +7404,6 @@ elif page == "Session TPO":
                         y1=r.get('poor_low_level', r['session_low']),
                         line=dict(color=negative_color, width=2)
                     )
-            
             # Column grid lines (block width)
             current_x = day_start
             while current_x <= day_end:
@@ -7148,7 +7487,7 @@ elif page == "Monday Range":
     )
     render_exchange_asset_controls("mr")
     
-    col1, col2, col3 = st.columns(3)
+    col1, col2, col3, col4 = st.columns(4)
     
     with col1:
         min_date = df_15m.index.min().date()
@@ -7179,35 +7518,13 @@ elif page == "Monday Range":
             step=1,
             key="mr_lookforward_days"
         )
-    
-    col4, col5, col6 = st.columns(3)
-    
+
     with col4:
         mr_timeframe = st.selectbox(
             "Chart Timeframe",
             options=['15m', '30m', '1h', '4h', '1D'],
             index=1,
             key="mr_timeframe"
-        )
-    
-    with col5:
-        bars_before_mr = st.number_input(
-            "Bars Before (Chart)",
-            min_value=1,
-            max_value=200,
-            value=40,
-            step=1,
-            key="mr_bars_before"
-        )
-    
-    with col6:
-        bars_after_mr = st.number_input(
-            "Bars After (Chart)",
-            min_value=1,
-            max_value=200,
-            value=80,
-            step=1,
-            key="mr_bars_after"
         )
     
     analyze_mr = st.button(
@@ -7370,34 +7687,51 @@ elif page == "Monday Range":
                 </div>
                 """, unsafe_allow_html=True)
             
-            col_nav1, col_nav2, col_nav3 = st.columns([1, 1, 1])
-            
-            with col_nav1:
-                if st.button("◀ Previous", key="mr_prev", type="secondary"):
+            col_ctrl1, col_ctrl2, col_ctrl3, col_ctrl4 = st.columns([1, 1, 1, 1])
+
+            with col_ctrl1:
+                bars_before_mr = st.number_input(
+                    "Bars Before (Chart)",
+                    min_value=1,
+                    max_value=200,
+                    value=50,
+                    step=1,
+                    key="mr_bars_before"
+                )
+
+            with col_ctrl2:
+                bars_after_mr = st.number_input(
+                    "Bars After (Chart)",
+                    min_value=1,
+                    max_value=200,
+                    value=80,
+                    step=1,
+                    key="mr_bars_after"
+                )
+
+            with col_ctrl3:
+                if st.button("◀ Previous", key="mr_prev", type="secondary", use_container_width=True):
                     if st.session_state.monday_range_chart_index > 0:
                         st.session_state.monday_range_chart_index -= 1
                     else:
                         st.session_state.monday_range_chart_index = len(mondays) - 1
                     st.rerun()
-            
-            with col_nav2:
-                st.write("")
-            
-            with col_nav3:
-                if st.button("Next ▶", key="mr_next"):
+
+            with col_ctrl4:
+                if st.button("Next ▶", key="mr_next", type="secondary", use_container_width=True):
                     if st.session_state.monday_range_chart_index < len(mondays) - 1:
                         st.session_state.monday_range_chart_index += 1
                     else:
                         st.session_state.monday_range_chart_index = 0
                     st.rerun()
-            
+
             current_idx = st.session_state.monday_range_chart_index
             if current_idx == -1 or current_idx >= len(mondays):
                 current_idx = len(mondays) - 1
-            
+
             current = mondays[current_idx]
             monday_end_time = current['monday_end']
-            
+
             if mr_timeframe == '15m':
                 df_chart = df_15m.copy()
             elif mr_timeframe == '30m':
@@ -7428,7 +7762,6 @@ elif page == "Monday Range":
                     'Low': 'min',
                     'Close': 'last'
                 }).dropna()
-            
             if monday_end_time in df_chart.index or len(df_chart) > 0:
                 idx = df_chart.index.get_indexer([monday_end_time], method='nearest')[0]
                 start_idx = max(0, idx - bars_before_mr)
@@ -7484,23 +7817,6 @@ elif page == "Monday Range":
                 
                 st.plotly_chart(fig_mr, use_container_width=True)
             
-            st.markdown("---")
-            with st.expander("Raw Data", expanded=False):
-                raw_mr = pd.DataFrame(mondays)
-                raw_mr['monday_start'] = raw_mr['monday_start'].dt.strftime('%Y-%m-%d')
-                raw_mr['monday_end'] = raw_mr['monday_end'].dt.strftime('%Y-%m-%d %H:%M')
-                raw_mr = raw_mr.rename(columns={
-                    'monday_start': 'Monday Start',
-                    'monday_end': 'Monday End',
-                    'high': 'Monday High',
-                    'low': 'Monday Low',
-                    'break_high': 'Break High',
-                    'break_low': 'Break Low',
-                    'rotate_to_high': 'Rotate to High',
-                    'rotate_to_low': 'Rotate to Low',
-                    'mfe_pct': 'MFE %'
-                })
-                st.dataframe(raw_mr, use_container_width=True, height=400)
 
 elif page == "Session Pivots" or (pivot_page_mode and pivot_section == "Session"):
     if not pivot_page_mode:
@@ -7618,6 +7934,13 @@ elif page == "Session Pivots" or (pivot_page_mode and pivot_section == "Session"
         
         total_sessions = len(results['dates'])
         
+        render_pivot_time_summary(
+            scope_label=f"Session Pivots ({session_select_sp}, {timeframe_sp})",
+            current_bucket=get_live_interval_bucket_for_session(session_select_sp, timeframe_sp),
+            p1_values=p1_intervals,
+            p2_values=p2_intervals,
+        )
+
         st.markdown("---")
         st.subheader("Session High/Low Distribution by Interval")
         
@@ -7787,26 +8110,14 @@ elif page == "Session Pivots" or (pivot_page_mode and pivot_section == "Session"
             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
             height=500
         )
-        
-        st.plotly_chart(fig_p1p2_sp, use_container_width=True)
-        
-        st.markdown("---")
-        st.subheader(f"Hit Rate Evolution: {interval_select_sp}")
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            pass  # Spacer
-        
-        with col2:
-            rolling_window_sp = st.number_input(
-                "Rolling Window (sessions)",
-                min_value=1,
-                max_value=100,
-                value=20,
-                step=1,
-                key="sp_rolling_window"
-            )
+        rolling_window_sp = st.number_input(
+            "Rolling Window (sessions)",
+            min_value=1,
+            max_value=100,
+            value=20,
+            step=1,
+            key="sp_rolling_window"
+        )
         
         # Calculate hit rates for selected interval
         high_hits_sp = [1 if interval == interval_select_sp else 0 for interval in results['high_intervals']]
@@ -8107,12 +8418,18 @@ elif page == "Weekly Pivots" or (pivot_page_mode and pivot_section == "Weekly"):
         p2_days = pd.Series(results['p2_days'])
         
         total_weeks = len(results['dates'])
-        
+        current_weekday = pd.Timestamp.utcnow().day_name()
+        render_pivot_time_summary(
+            scope_label="Weekly Pivots",
+            current_bucket=current_weekday,
+            p1_values=p1_days,
+            p2_values=p2_days,
+        )
+
         st.markdown("---")
         st.subheader("Weekly High/Low Distribution by Day")
         
         col1, col2 = st.columns(2)
-        
         day_order = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
         
         with col1:
@@ -8542,7 +8859,14 @@ elif page == "Monthly Pivots" or (pivot_page_mode and pivot_section == "Monthly"
         p2_days = pd.Series(results['p2_days'])
         
         total_months = len(results['dates'])
-        
+        current_month_day = str(pd.Timestamp.utcnow().day)
+        render_pivot_time_summary(
+            scope_label="Monthly Pivots",
+            current_bucket=current_month_day,
+            p1_values=p1_days,
+            p2_values=p2_days,
+        )
+
         st.markdown("---")
         st.subheader("Monthly High/Low Distribution by Day of Month")
         
@@ -8911,25 +9235,19 @@ elif page == "Monthly Pivots" or (pivot_page_mode and pivot_section == "Monthly"
                 height=500,
                 hovermode='x unified'
             )
-            
             st.plotly_chart(fig_month, use_container_width=True)
         else:
             st.warning("No data available for this month")
         
         st.markdown("---")
-
 # ============================================================================
 # DAILY TPO ANALYSIS FUNCTION
 # ============================================================================
 
 def analyze_daily_tpo(df_15m, start_date, end_date, day_filter, tick_mode, manual_tick, atr_multiplier, days_to_track):
     """
-    Analyze daily TPO profiles with ATR-based tick sizing
-    Similar to session TPO but for full trading days
+    Analyze daily TPO profiles with average 30m range since day open for auto tick sizing.
     """
-    
-    # Calculate ATR from last 60 15-min bars (15 hours)
-    atr_period = 60
     
     results = []
     
@@ -8951,58 +9269,45 @@ def analyze_daily_tpo(df_15m, start_date, end_date, day_filter, tick_mode, manua
         day_name = day_info['day_name']
         daily_data = day_info['data']
         
-        # Filter by day of week
         if day_filter and day_name not in day_filter:
             continue
         
-        if len(daily_data) < 10:  # Need at least 10 bars for meaningful profile
+        if len(daily_data) < 10:
             continue
         
-        # Calculate tick size using ATR
-        if tick_mode == "Auto":
-            atr = calculate_atr(daily_data, atr_period)
+        if str(tick_mode).startswith("Auto"):
+            period_end = daily_data.index[-1]
+            atr = calculate_avg_range_since_dopen_30m(df_15m, period_end)
             tick_size = atr * atr_multiplier
-            
-            # Validate tick_size
             if pd.isna(tick_size) or tick_size <= 0:
-                tick_size = 100.0  # Default fallback
+                tick_size = 100.0
         else:
             tick_size = manual_tick
+            atr = None
         
         tick_size = max(float(tick_size), 1.0)
         
-        # Resample to 30m bars for Daily TPO
         daily_data_30m = resample_to_30m(daily_data)
-        
-        if len(daily_data_30m) < 5:  # Need at least 5 30m bars
+        if len(daily_data_30m) < 5:
             continue
         
-        # Generate extended alphabet letters
         tpo_letters = generate_tpo_letters(len(daily_data_30m))
-        
-        # Build TPO profile from 30m data
         profile = build_tpo_profile_with_letters(daily_data_30m, tick_size, tpo_letters)
-        
         if not profile:
             continue
         
-        # Analyze profile for poor highs/lows
         profile_analysis = analyze_tpo_profile(profile)
-        
         if not profile_analysis:
             continue
         
-        # Get future days for sweep tracking
         future_days_data = []
         for j in range(i + 1, min(i + 1 + days_to_track, len(all_days))):
             future_days_data.append(all_days[j]['data'])
         
-        # Track poor high sweeps
         poor_high_swept = False
         poor_high_sweep_day = None
         poor_high_mae = 0
         poor_high_mae_pct = 0
-        
         if profile_analysis['is_poor_high']:
             poor_high_swept, sweep_idx, mae, mae_pct = check_sweep(
                 profile_analysis['poor_high_level'],
@@ -9014,12 +9319,10 @@ def analyze_daily_tpo(df_15m, start_date, end_date, day_filter, tick_mode, manua
             poor_high_mae = mae
             poor_high_mae_pct = mae_pct
         
-        # Track poor low sweeps
         poor_low_swept = False
         poor_low_sweep_day = None
         poor_low_mae = 0
         poor_low_mae_pct = 0
-        
         if profile_analysis['is_poor_low']:
             poor_low_swept, sweep_idx, mae, mae_pct = check_sweep(
                 profile_analysis['poor_low_level'],
@@ -9031,16 +9334,15 @@ def analyze_daily_tpo(df_15m, start_date, end_date, day_filter, tick_mode, manua
             poor_low_mae = mae
             poor_low_mae_pct = mae_pct
         
-        # Store results
         results.append({
             'date': date,
             'day_name': day_name,
-            'data': daily_data,  # Keep original 15m for display
-            'data_30m': daily_data_30m,  # 30m data used for TPO
-            'tpo_letters': tpo_letters,  # Letter sequence
+            'data': daily_data,
+            'data_30m': daily_data_30m,
+            'tpo_letters': tpo_letters,
             'profile': profile,
             'tick_size': tick_size,
-            'atr': atr if tick_mode == "Auto" else None,
+            'atr': atr,
             'is_poor_high': profile_analysis['is_poor_high'],
             'is_poor_low': profile_analysis['is_poor_low'],
             'poor_high_swept': poor_high_swept,
@@ -9053,11 +9355,13 @@ def analyze_daily_tpo(df_15m, start_date, end_date, day_filter, tick_mode, manua
             'poor_low_mae_pct': poor_low_mae_pct,
             'session_high': profile_analysis['session_high'],
             'session_low': profile_analysis['session_low'],
-            'range': profile_analysis['range']
+            'range': profile_analysis['range'],
+            'poor_high_level': profile_analysis['poor_high_level'],
+            'poor_low_level': profile_analysis['poor_low_level']
         })
     
     return results
-
+    
 if page == "Daily TPO":
     render_page_header(
         "Daily TPO Analysis",
@@ -9085,16 +9389,16 @@ if page == "Daily TPO":
                 step=10.0,
                 key="daily_tpo_manual_tick"
             )
-            atr_multiplier_daily = 0.15  # Not used in manual mode
+            atr_multiplier_daily = 0.125
         else:
-            manual_tick_daily = 100.0  # Not used in auto mode
+            manual_tick_daily = 100.0
             atr_multiplier_daily = st.slider(
                 "ATR Multiplier",
                 min_value=0.05,
                 max_value=0.50,
-                value=0.15,
-                step=0.01,
-                help="Tick size = ATR × this multiplier (calculated from last 15 hours)",
+                value=0.125,
+                step=0.005,
+                help="Tick size = average 30m range since day open × this multiplier",
                 key="daily_tpo_atr_multiplier"
             )
     
@@ -9132,7 +9436,7 @@ if page == "Daily TPO":
             max_value=max_date,
             key="daily_tpo_start"
         )
-    
+
     with col6:
         end_date_daily_tpo = st.date_input(
             "End Date",
@@ -9141,396 +9445,397 @@ if page == "Daily TPO":
             max_value=max_date,
             key="daily_tpo_end"
         )
-    
+
     analyze_daily_tpo_btn = st.button(
-        " Analyze Daily TPO",
+        "Analyze Daily TPO",
         use_container_width=True,
         type="primary",
         key="analyze_daily_tpo"
     )
+
     if analyze_daily_tpo_btn:
         with st.spinner("Analyzing daily TPO profiles..."):
-            results = analyze_daily_tpo(
+            results_daily_tpo = analyze_daily_tpo(
                 df_15m,
                 start_date_daily_tpo,
                 end_date_daily_tpo,
                 day_filter_daily_tpo,
-                tick_mode_daily.split()[0],  # Extract "Auto" or "Manual"
+                tick_mode_daily,
                 manual_tick_daily,
                 atr_multiplier_daily,
-                days_to_track
+                days_to_track,
             )
-            
+            st.session_state.daily_tpo_results = results_daily_tpo
             st.session_state.daily_tpo_analyzed = True
-            st.session_state.daily_tpo_results = results
             st.session_state.daily_tpo_profile_index = -1
-    
-    if 'daily_tpo_analyzed' in st.session_state and st.session_state.daily_tpo_analyzed and 'daily_tpo_results' in st.session_state:
-        results = st.session_state.daily_tpo_results
+
+    results = st.session_state.get('daily_tpo_results') or []
+
+    if not st.session_state.get('daily_tpo_analyzed', False):
+        st.info("Set filters and click Analyze Daily TPO.")
+    elif len(results) == 0:
+        st.warning("No profiles found with the selected filters.")
+    else:
+        st.markdown("---")
+        st.subheader("Summary Statistics")
+            
+        # Calculate statistics
+        total_profiles = len(results)
+        poor_high_count = sum(1 for r in results if r['is_poor_high'])
+        poor_low_count = sum(1 for r in results if r['is_poor_low'])
         
-        if len(results) == 0:
-            st.warning("No profiles found with the selected filters.")
+        poor_high_swept_count = sum(1 for r in results if r['poor_high_swept'])
+        poor_low_swept_count = sum(1 for r in results if r['poor_low_swept'])
+        
+        poor_high_sweep_rate = (poor_high_swept_count / poor_high_count * 100) if poor_high_count > 0 else 0
+        poor_low_sweep_rate = (poor_low_swept_count / poor_low_count * 100) if poor_low_count > 0 else 0
+        
+        # MAE statistics
+        poor_high_maes = [r['poor_high_mae_pct'] for r in results if r['is_poor_high']]
+        poor_low_maes = [r['poor_low_mae_pct'] for r in results if r['is_poor_low']]
+        
+        avg_high_mae = np.mean(poor_high_maes) if poor_high_maes else 0
+        avg_low_mae = np.mean(poor_low_maes) if poor_low_maes else 0
+        
+        # Display statistics (even 2x3 grid)
+        row1_c1, row1_c2, row1_c3 = st.columns(3)
+        with row1_c1:
+            st.markdown(f"""
+            <div class="metric-card">
+                <div class="metric-title">Total Profiles</div>
+                <div class="metric-value">{total_profiles}</div>
+            </div>
+            """, unsafe_allow_html=True)
+        with row1_c2:
+            st.markdown(f"""
+            <div class="metric-card">
+                <div class="metric-title">Poor Highs</div>
+                <div class="metric-value">{poor_high_count}</div>
+                <div class="metric-subtitle">{poor_high_count/total_profiles*100:.1f}%</div>
+            </div>
+            """, unsafe_allow_html=True)
+        with row1_c3:
+            st.markdown(f"""
+            <div class="metric-card">
+                <div class="metric-title">Poor Lows</div>
+                <div class="metric-value">{poor_low_count}</div>
+                <div class="metric-subtitle">{poor_low_count/total_profiles*100:.1f}%</div>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        row2_c1, row2_c2, row2_c3 = st.columns(3)
+        with row2_c1:
+            st.markdown(f"""
+            <div class="metric-card">
+                <div class="metric-title">Poor High Sweep Rate</div>
+                <div class="metric-value">{poor_high_sweep_rate:.1f}%</div>
+            </div>
+            """, unsafe_allow_html=True)
+        with row2_c2:
+            st.markdown(f"""
+            <div class="metric-card">
+                <div class="metric-title">Poor Low Sweep Rate</div>
+                <div class="metric-value">{poor_low_sweep_rate:.1f}%</div>
+            </div>
+            """, unsafe_allow_html=True)
+        with row2_c3:
+            st.markdown(f"""
+            <div class="metric-card">
+                <div class="metric-title">Avg MAE (High / Low)</div>
+                <div class="metric-value">{avg_high_mae:.2f}% / {avg_low_mae:.2f}%</div>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        # Profile navigation
+        st.markdown("---")
+        st.subheader("Chart Display Options")
+        
+        col_bars1, col_bars2 = st.columns(2)
+        with col_bars1:
+            bars_before_daily = st.number_input(
+                "Bars Before Day",
+                min_value=10,
+                max_value=200,
+                value=12,
+                step=10,
+                help="Number of 15m bars to show before day start",
+                key="daily_tpo_bars_before"
+            )
+        with col_bars2:
+            bars_after_daily = st.number_input(
+                "Bars After Day",
+                min_value=10,
+                max_value=200,
+                value=20,
+                step=10,
+                help="Number of 15m bars to show after day end",
+                key="daily_tpo_bars_after"
+            )
+        
+        profile_display_mode = st.radio(
+            "Profile Display",
+            options=["Letters", "Blocks"],
+            horizontal=True,
+            key="daily_tpo_display_mode"
+        )
+        
+        st.markdown("---")
+        st.subheader("Profile Viewer")
+        
+        if 'daily_tpo_profile_index' not in st.session_state:
+            st.session_state.daily_tpo_profile_index = -1
+        
+        col_nav1, col_nav2, col_nav3 = st.columns([1, 2, 1])
+        
+        with col_nav1:
+            if st.button("◀ Previous Profile", key="prev_daily_tpo", type="secondary"):
+                if st.session_state.daily_tpo_profile_index > 0:
+                    st.session_state.daily_tpo_profile_index -= 1
+                else:
+                    st.session_state.daily_tpo_profile_index = len(results) - 1
+                st.rerun()
+        
+        with col_nav3:
+            if st.button("Next Profile ▶", key="next_daily_tpo"):
+                if st.session_state.daily_tpo_profile_index < len(results) - 1:
+                    st.session_state.daily_tpo_profile_index += 1
+                else:
+                    st.session_state.daily_tpo_profile_index = 0
+                st.rerun()
+        
+        # Get current profile
+        current_idx = st.session_state.daily_tpo_profile_index
+        if current_idx == -1 or current_idx >= len(results):
+            current_idx = len(results) - 1
+        
+        # Ensure index is within bounds
+        current_idx = max(0, min(current_idx, len(results) - 1))
+        
+        current_profile = results[current_idx]
+        
+        # Profile info
+        st.caption(f"Profile {current_idx + 1} of {len(results)} | {current_profile['date'].strftime('%Y-%m-%d')} ({current_profile['day_name']}) | Tick Size: ${current_profile['tick_size']:.2f}" + 
+                  (f" | ATR: ${current_profile['atr']:.2f}" if current_profile['atr'] else ""))
+        
+        # Create TPO visualization
+        fig = go.Figure()
+        
+        # Add candlesticks with grey colors
+        # Extend chart range by bars before/after
+        daily_30m = current_profile['data_30m']
+        day_start = daily_30m.index[0]
+        day_end = daily_30m.index[-1]
+        chart_start = day_start - timedelta(minutes=30 * bars_before_daily)
+        chart_end = day_end + timedelta(minutes=30 * bars_after_daily)
+        extended_30m = df_15m.resample('30min').agg({
+            'Open': 'first',
+            'High': 'max',
+            'Low': 'min',
+            'Close': 'last',
+            'Volume': 'sum'
+        }).dropna()
+        chart_data = extended_30m[(extended_30m.index >= chart_start) & (extended_30m.index <= chart_end)]
+
+        fig.add_trace(go.Candlestick(
+            x=chart_data.index,
+            open=chart_data['Open'],
+            high=chart_data['High'],
+            low=chart_data['Low'],
+            close=chart_data['Close'],
+            name='Price',
+            increasing_line_color='#A8A8A8',
+            decreasing_line_color='#5A5A5A',
+            increasing_fillcolor='#A8A8A8',
+            decreasing_fillcolor='#5A5A5A',
+            hovertemplate=CANDLE_HOVER_TEMPLATE
+        ))
+        
+        # Add poor high line
+        if current_profile.get('is_poor_high'):
+            color_high = 'green' if current_profile['poor_high_swept'] else 'red'
+            fig.add_shape(
+                type="line",
+                x0=chart_data.index[0],
+                x1=chart_data.index[-1],
+                y0=current_profile.get('poor_high_level', current_profile['session_high']),
+                y1=current_profile.get('poor_high_level', current_profile['session_high']),
+                line=dict(color=color_high, width=2, dash='solid')
+            )
+        
+        # Add poor low line
+        if current_profile.get('is_poor_low'):
+            color_low = 'green' if current_profile['poor_low_swept'] else 'red'
+            fig.add_shape(
+                type="line",
+                x0=chart_data.index[0],
+                x1=chart_data.index[-1],
+                y0=current_profile.get('poor_low_level', current_profile['session_low']),
+                y1=current_profile.get('poor_low_level', current_profile['session_low']),
+                line=dict(color=color_low, width=2, dash='solid')
+            )
+        
+        # Add TPO profile (vertical text on left, same as Session TPO)
+        profile = current_profile['profile']
+
+        # Sort prices from high to low for proper display
+        sorted_prices = sorted(profile.keys(), reverse=True)
+        
+        # Position profile at chart start (left edge)
+        first_timestamp = daily_30m.index[0]
+        
+        if profile_display_mode == "Letters":
+            letter_sequence = current_profile.get('tpo_letters', [])
+
+            for price in sorted_prices:
+                letters_at_price = profile[price]
+
+                # Keep letter order aligned to bar sequence (same build order used by blocks)
+                if letter_sequence:
+                    letter_set = set(letters_at_price)
+                    ordered_letters = [ltr for ltr in letter_sequence if ltr in letter_set]
+                    tpo_letters = ''.join(ordered_letters)
+                else:
+                    tpo_letters = ''.join(letters_at_price)
+
+                # Determine color - red for poor extremes
+                if price == current_profile['session_high'] and current_profile['is_poor_high']:
+                    text_color_tpo = negative_color
+                elif price == current_profile['session_low'] and current_profile['is_poor_low']:
+                    text_color_tpo = negative_color
+                else:
+                    text_color_tpo = "#FFFFFF"
+
+                fig.add_annotation(
+                    x=first_timestamp,
+                    y=price,
+                    text=tpo_letters,
+                    showarrow=False,
+                    font=dict(family="monospace", size=10, color=text_color_tpo),
+                    xanchor='left',
+                    yanchor='middle'
+                )
         else:
-            st.markdown("---")
-            st.subheader("Summary Statistics")
+            profile_counts = {price: len(tpos) for price, tpos in profile.items()}
+            total_tpos = sum(profile_counts.values()) if profile_counts else 1
+            value_area = compute_value_area(profile_counts, value_area_pct=0.68)
+            block_width = timedelta(minutes=30)
+            tick_size = current_profile['tick_size']
             
-            # Calculate statistics
-            total_profiles = len(results)
-            poor_high_count = sum(1 for r in results if r['is_poor_high'])
-            poor_low_count = sum(1 for r in results if r['is_poor_low'])
-            
-            poor_high_swept_count = sum(1 for r in results if r['poor_high_swept'])
-            poor_low_swept_count = sum(1 for r in results if r['poor_low_swept'])
-            
-            poor_high_sweep_rate = (poor_high_swept_count / poor_high_count * 100) if poor_high_count > 0 else 0
-            poor_low_sweep_rate = (poor_low_swept_count / poor_low_count * 100) if poor_low_count > 0 else 0
-            
-            # MAE statistics
-            poor_high_maes = [r['poor_high_mae_pct'] for r in results if r['is_poor_high']]
-            poor_low_maes = [r['poor_low_mae_pct'] for r in results if r['is_poor_low']]
-            
-            avg_high_mae = np.mean(poor_high_maes) if poor_high_maes else 0
-            avg_low_mae = np.mean(poor_low_maes) if poor_low_maes else 0
-            
-            # Display statistics (even 2x3 grid)
-            row1_c1, row1_c2, row1_c3 = st.columns(3)
-            with row1_c1:
-                st.markdown(f"""
-                <div class="metric-card">
-                    <div class="metric-title">Total Profiles</div>
-                    <div class="metric-value">{total_profiles}</div>
-                </div>
-                """, unsafe_allow_html=True)
-            with row1_c2:
-                st.markdown(f"""
-                <div class="metric-card">
-                    <div class="metric-title">Poor Highs</div>
-                    <div class="metric-value">{poor_high_count}</div>
-                    <div class="metric-subtitle">{poor_high_count/total_profiles*100:.1f}%</div>
-                </div>
-                """, unsafe_allow_html=True)
-            with row1_c3:
-                st.markdown(f"""
-                <div class="metric-card">
-                    <div class="metric-title">Poor Lows</div>
-                    <div class="metric-value">{poor_low_count}</div>
-                    <div class="metric-subtitle">{poor_low_count/total_profiles*100:.1f}%</div>
-                </div>
-                """, unsafe_allow_html=True)
-            
-            row2_c1, row2_c2, row2_c3 = st.columns(3)
-            with row2_c1:
-                st.markdown(f"""
-                <div class="metric-card">
-                    <div class="metric-title">Poor High Sweep Rate</div>
-                    <div class="metric-value">{poor_high_sweep_rate:.1f}%</div>
-                </div>
-                """, unsafe_allow_html=True)
-            with row2_c2:
-                st.markdown(f"""
-                <div class="metric-card">
-                    <div class="metric-title">Poor Low Sweep Rate</div>
-                    <div class="metric-value">{poor_low_sweep_rate:.1f}%</div>
-                </div>
-                """, unsafe_allow_html=True)
-            with row2_c3:
-                st.markdown(f"""
-                <div class="metric-card">
-                    <div class="metric-title">Avg MAE (High / Low)</div>
-                    <div class="metric-value">{avg_high_mae:.2f}% / {avg_low_mae:.2f}%</div>
-                </div>
-                """, unsafe_allow_html=True)
-            
-            # Profile navigation
-            st.markdown("---")
-            st.subheader("Chart Display Options")
-            
-            col_bars1, col_bars2 = st.columns(2)
-            with col_bars1:
-                bars_before_daily = st.number_input(
-                    "Bars Before Day",
-                    min_value=10,
-                    max_value=200,
-                    value=12,
-                    step=10,
-                    help="Number of 15m bars to show before day start",
-                    key="daily_tpo_bars_before"
-                )
-            with col_bars2:
-                bars_after_daily = st.number_input(
-                    "Bars After Day",
-                    min_value=10,
-                    max_value=200,
-                    value=20,
-                    step=10,
-                    help="Number of 15m bars to show after day end",
-                    key="daily_tpo_bars_after"
-                )
-            
-            profile_display_mode = st.radio(
-                "Profile Display",
-                options=["Letters", "Blocks"],
-                horizontal=True,
-                key="daily_tpo_display_mode"
-            )
-            
-            st.markdown("---")
-            st.subheader("Profile Viewer")
-            
-            if 'daily_tpo_profile_index' not in st.session_state:
-                st.session_state.daily_tpo_profile_index = -1
-            
-            col_nav1, col_nav2, col_nav3 = st.columns([1, 2, 1])
-            
-            with col_nav1:
-                if st.button("◀ Previous Profile", key="prev_daily_tpo", type="secondary"):
-                    if st.session_state.daily_tpo_profile_index > 0:
-                        st.session_state.daily_tpo_profile_index -= 1
-                    else:
-                        st.session_state.daily_tpo_profile_index = len(results) - 1
-                    st.rerun()
-            
-            with col_nav3:
-                if st.button("Next Profile ▶", key="next_daily_tpo"):
-                    if st.session_state.daily_tpo_profile_index < len(results) - 1:
-                        st.session_state.daily_tpo_profile_index += 1
-                    else:
-                        st.session_state.daily_tpo_profile_index = 0
-                    st.rerun()
-            
-            # Get current profile
-            current_idx = st.session_state.daily_tpo_profile_index
-            if current_idx == -1 or current_idx >= len(results):
-                current_idx = len(results) - 1
-            
-            # Ensure index is within bounds
-            current_idx = max(0, min(current_idx, len(results) - 1))
-            
-            current_profile = results[current_idx]
-            
-            # Profile info
-            st.caption(f"Profile {current_idx + 1} of {len(results)} | {current_profile['date'].strftime('%Y-%m-%d')} ({current_profile['day_name']}) | Tick Size: ${current_profile['tick_size']:.2f}" + 
-                      (f" | ATR: ${current_profile['atr']:.2f}" if current_profile['atr'] else ""))
-            
-            # Create TPO visualization
-            fig = go.Figure()
-            
-            # Add candlesticks with grey colors
-            # Extend chart range by bars before/after
-            daily_30m = current_profile['data_30m']
-            day_start = daily_30m.index[0]
-            day_end = daily_30m.index[-1]
-            chart_start = day_start - timedelta(minutes=30 * bars_before_daily)
-            chart_end = day_end + timedelta(minutes=30 * bars_after_daily)
-            extended_30m = df_15m.resample('30min').agg({
-                'Open': 'first',
-                'High': 'max',
-                'Low': 'min',
-                'Close': 'last',
-                'Volume': 'sum'
-            }).dropna()
-            chart_data = extended_30m[(extended_30m.index >= chart_start) & (extended_30m.index <= chart_end)]
+            max_count = max(profile_counts.values()) if profile_counts else 1
+            gap = tick_size * 0.08  # small gap between rows
+            column_step = timedelta(minutes=30)
 
-            fig.add_trace(go.Candlestick(
-                x=chart_data.index,
-                open=chart_data['Open'],
-                high=chart_data['High'],
-                low=chart_data['Low'],
-                close=chart_data['Close'],
-                name='Price',
-                increasing_line_color='#A8A8A8',
-                decreasing_line_color='#5A5A5A',
-                increasing_fillcolor='#A8A8A8',
-                decreasing_fillcolor='#5A5A5A',
-                hovertemplate=CANDLE_HOVER_TEMPLATE
-            ))
-            
-            # Add poor high line
-            if current_profile.get('is_poor_high'):
-                color_high = 'green' if current_profile['poor_high_swept'] else 'red'
+            for price in sorted_prices:
+                count = profile_counts.get(price, 0)
+                if count <= 0:
+                    continue
+                base_color = "#B5B5B5" if price in value_area else "#6495ED"
+                factor = min(0.6, count / total_tpos)
+                block_color = blend_to_black(base_color, factor)
+
+                # Highlight poor high/low blocks by sweep status
+                if price == current_profile.get('poor_high_level') and current_profile['is_poor_high']:
+                    block_color = "#22C55E" if current_profile['poor_high_swept'] else "#EF4444"
+                if price == current_profile.get('poor_low_level') and current_profile['is_poor_low']:
+                    block_color = "#22C55E" if current_profile['poor_low_swept'] else "#EF4444"
+                
+                fig.add_shape(
+                    type="rect",
+                    x0=first_timestamp,
+                    x1=first_timestamp + (block_width * count),
+                    y0=price - (tick_size / 2) + gap,
+                    y1=price + (tick_size / 2) - gap,
+                    line=dict(color=grid_color, width=0.5),
+                    fillcolor=block_color
+                )
+
+            # Column grid lines (30m columns)
+            column_end = first_timestamp + (block_width * max_count)
+            current_x = first_timestamp
+            while current_x <= column_end:
                 fig.add_shape(
                     type="line",
-                    x0=chart_data.index[0],
-                    x1=chart_data.index[-1],
-                    y0=current_profile.get('poor_high_level', current_profile['session_high']),
-                    y1=current_profile.get('poor_high_level', current_profile['session_high']),
-                    line=dict(color=color_high, width=2, dash='solid')
+                    x0=current_x,
+                    x1=current_x,
+                    y0=min(sorted_prices) - (tick_size / 2),
+                    y1=max(sorted_prices) + (tick_size / 2),
+                    line=dict(color=grid_color, width=0.5)
                 )
-            
-            # Add poor low line
-            if current_profile.get('is_poor_low'):
-                color_low = 'green' if current_profile['poor_low_swept'] else 'red'
-                fig.add_shape(
-                    type="line",
-                    x0=chart_data.index[0],
-                    x1=chart_data.index[-1],
-                    y0=current_profile.get('poor_low_level', current_profile['session_low']),
-                    y1=current_profile.get('poor_low_level', current_profile['session_low']),
-                    line=dict(color=color_low, width=2, dash='solid')
-                )
-            
-            # Add TPO profile (vertical text on left, same as Session TPO)
-            profile = current_profile['profile']
-
-            # Sort prices from high to low for proper display
-            sorted_prices = sorted(profile.keys(), reverse=True)
-            
-            # Position profile at chart start (left edge)
-            first_timestamp = daily_30m.index[0]
-            
-            if profile_display_mode == "Letters":
-                letter_sequence = current_profile.get('tpo_letters', [])
-
-                for price in sorted_prices:
-                    letters_at_price = profile[price]
-
-                    # Keep letter order aligned to bar sequence (same build order used by blocks)
-                    if letter_sequence:
-                        letter_set = set(letters_at_price)
-                        ordered_letters = [ltr for ltr in letter_sequence if ltr in letter_set]
-                        tpo_letters = ''.join(ordered_letters)
-                    else:
-                        tpo_letters = ''.join(letters_at_price)
-
-                    # Determine color - red for poor extremes
-                    if price == current_profile['session_high'] and current_profile['is_poor_high']:
-                        text_color_tpo = negative_color
-                    elif price == current_profile['session_low'] and current_profile['is_poor_low']:
-                        text_color_tpo = negative_color
-                    else:
-                        text_color_tpo = "#FFFFFF"
-
-                    fig.add_annotation(
-                        x=first_timestamp,
-                        y=price,
-                        text=tpo_letters,
-                        showarrow=False,
-                        font=dict(family="monospace", size=10, color=text_color_tpo),
-                        xanchor='left',
-                        yanchor='middle'
-                    )
+                current_x += column_step
+        
+        fig.update_layout(
+            title=f"Daily TPO - {current_profile['date'].strftime('%Y-%m-%d')} ({current_profile['day_name']}) | 30m Bars",
+            xaxis_title="Time (UTC)",
+            yaxis_title="Price",
+            plot_bgcolor=plot_bg,
+            paper_bgcolor=plot_bg,
+            font=dict(color=text_color),
+            xaxis=dict(showgrid=False, color=text_color),
+            yaxis=dict(showgrid=True, gridcolor=grid_color, color=text_color),
+            height=600,
+            hovermode='x unified'
+        )
+        
+        st.plotly_chart(fig, use_container_width=True)
+        
+        # Profile details
+        st.markdown("---")
+        st.subheader("Profile Details")
+        
+        col_d1, col_d2, col_d3 = st.columns(3)
+        
+        with col_d1:
+            st.write("**Profile Levels:**")
+            st.write(f"High: ${current_profile['session_high']:.2f}")
+            st.write(f"Low: ${current_profile['session_low']:.2f}")
+            st.write(f"Range: ${current_profile['range']:.2f}")
+        
+        with col_d2:
+            st.write("**Profile Info:**")
+            st.write(f"Range: ${current_profile['range']:.2f}")
+            st.write(f"TPOs at High: {current_profile.get('tpos_at_high', 'N/A')}")
+            st.write(f"TPOs at Low: {current_profile.get('tpos_at_low', 'N/A')}")
+        
+        with col_d3:
+            st.write("**Sweep Info:**")
+            if current_profile['is_poor_high']:
+                sweep_status_h = "✅ Swept" if current_profile['poor_high_swept'] else "❌ Not Swept"
+                st.write(f"Poor High: {sweep_status_h}")
+                if current_profile['poor_high_swept']:
+                    st.write(f"Day {current_profile['poor_high_sweep_day'] + 1} | MAE: {current_profile['poor_high_mae_pct']:.2f}%")
             else:
-                profile_counts = {price: len(tpos) for price, tpos in profile.items()}
-                total_tpos = sum(profile_counts.values()) if profile_counts else 1
-                value_area = compute_value_area(profile_counts, value_area_pct=0.68)
-                block_width = timedelta(minutes=30)
-                tick_size = current_profile['tick_size']
-                
-                max_count = max(profile_counts.values()) if profile_counts else 1
-                gap = tick_size * 0.08  # small gap between rows
-                column_step = timedelta(minutes=30)
+                st.write("Poor High: None")
 
-                for price in sorted_prices:
-                    count = profile_counts.get(price, 0)
-                    if count <= 0:
-                        continue
-                    base_color = "#B5B5B5" if price in value_area else "#6495ED"
-                    factor = min(0.6, count / total_tpos)
-                    block_color = blend_to_black(base_color, factor)
+            if current_profile['is_poor_low']:
+                sweep_status_l = "✅ Swept" if current_profile['poor_low_swept'] else "❌ Not Swept"
+                st.write(f"Poor Low: {sweep_status_l}")
+                if current_profile['poor_low_swept']:
+                    st.write(f"Day {current_profile['poor_low_sweep_day'] + 1} | MAE: {current_profile['poor_low_mae_pct']:.2f}%")
+            else:
+                st.write("Poor Low: None")
 
-                    # Highlight poor high/low blocks by sweep status
-                    if price == current_profile.get('poor_high_level') and current_profile['is_poor_high']:
-                        block_color = "#22C55E" if current_profile['poor_high_swept'] else "#EF4444"
-                    if price == current_profile.get('poor_low_level') and current_profile['is_poor_low']:
-                        block_color = "#22C55E" if current_profile['poor_low_swept'] else "#EF4444"
-                    
-                    fig.add_shape(
-                        type="rect",
-                        x0=first_timestamp,
-                        x1=first_timestamp + (block_width * count),
-                        y0=price - (tick_size / 2) + gap,
-                        y1=price + (tick_size / 2) - gap,
-                        line=dict(color=grid_color, width=0.5),
-                        fillcolor=block_color
-                    )
+        # Raw data table
+        st.markdown("---")
+        with st.expander("Raw Data - All Profiles", expanded=False):
+            raw_daily = []
+            for r in results:
+                raw_daily.append({
+                    'Date': r['date'].strftime('%Y-%m-%d'),
+                    'Day': r['day_name'],
+                    'Tick': f"${r['tick_size']:.2f}",
+                    'High': f"{r['session_high']:.2f}",
+                    'Low': f"{r['session_low']:.2f}",
+                    'Poor H?': '✓' if r['is_poor_high'] else '',
+                    'Poor L?': '✓' if r['is_poor_low'] else '',
+                    'H Swept?': '✓' if r['poor_high_swept'] else '',
+                    'L Swept?': '✓' if r['poor_low_swept'] else '',
+                    'H Day': r['poor_high_sweep_day'] + 1 if r['poor_high_swept'] else '',
+                    'L Day': r['poor_low_sweep_day'] + 1 if r['poor_low_swept'] else '',
+                    'H MAE%': f"{r['poor_high_mae_pct']:.2f}%" if r['poor_high_swept'] else '',
+                    'L MAE%': f"{r['poor_low_mae_pct']:.2f}%" if r['poor_low_swept'] else ''
+                })
 
-                # Column grid lines (30m columns)
-                column_end = first_timestamp + (block_width * max_count)
-                current_x = first_timestamp
-                while current_x <= column_end:
-                    fig.add_shape(
-                        type="line",
-                        x0=current_x,
-                        x1=current_x,
-                        y0=min(sorted_prices) - (tick_size / 2),
-                        y1=max(sorted_prices) + (tick_size / 2),
-                        line=dict(color=grid_color, width=0.5)
-                    )
-                    current_x += column_step
-            
-            fig.update_layout(
-                title=f"Daily TPO - {current_profile['date'].strftime('%Y-%m-%d')} ({current_profile['day_name']}) | 30m Bars",
-                xaxis_title="Time (UTC)",
-                yaxis_title="Price",
-                plot_bgcolor=plot_bg,
-                paper_bgcolor=plot_bg,
-                font=dict(color=text_color),
-                xaxis=dict(showgrid=False, color=text_color),
-                yaxis=dict(showgrid=True, gridcolor=grid_color, color=text_color),
-                height=600,
-                hovermode='x unified'
-            )
-            
-            st.plotly_chart(fig, use_container_width=True)
-            
-            # Profile details
-            st.markdown("---")
-            st.subheader("Profile Details")
-            
-            col_d1, col_d2, col_d3 = st.columns(3)
-            
-            with col_d1:
-                st.write("**Profile Levels:**")
-                st.write(f"High: ${current_profile['session_high']:.2f}")
-                st.write(f"Low: ${current_profile['session_low']:.2f}")
-                st.write(f"Range: ${current_profile['range']:.2f}")
-            
-            with col_d2:
-                st.write("**Profile Info:**")
-                st.write(f"Range: ${current_profile['range']:.2f}")
-                st.write(f"TPOs at High: {current_profile.get('tpos_at_high', 'N/A')}")
-                st.write(f"TPOs at Low: {current_profile.get('tpos_at_low', 'N/A')}")
-            
-            with col_d3:
-                st.write("**Sweep Info:**")
-                if current_profile['is_poor_high']:
-                    sweep_status_h = "✅ Swept" if current_profile['poor_high_swept'] else "❌ Not Swept"
-                    st.write(f"Poor High: {sweep_status_h}")
-                    if current_profile['poor_high_swept']:
-                        st.write(f"Day {current_profile['poor_high_sweep_day'] + 1} | MAE: {current_profile['poor_high_mae_pct']:.2f}%")
-                else:
-                    st.write("Poor High: None")
-                
-                if current_profile['is_poor_low']:
-                    sweep_status_l = "✅ Swept" if current_profile['poor_low_swept'] else "❌ Not Swept"
-                    st.write(f"Poor Low: {sweep_status_l}")
-                    if current_profile['poor_low_swept']:
-                        st.write(f"Day {current_profile['poor_low_sweep_day'] + 1} | MAE: {current_profile['poor_low_mae_pct']:.2f}%")
-                else:
-                    st.write("Poor Low: None")
-
-            # Raw data table
-            st.markdown("---")
-            with st.expander("Raw Data - All Profiles", expanded=False):
-                raw_daily = []
-                for r in results:
-                    raw_daily.append({
-                        'Date': r['date'].strftime('%Y-%m-%d'),
-                        'Day': r['day_name'],
-                        'Tick': f"${r['tick_size']:.2f}",
-                        'High': f"{r['session_high']:.2f}",
-                        'Low': f"{r['session_low']:.2f}",
-                        'Poor H?': '✓' if r['is_poor_high'] else '',
-                        'Poor L?': '✓' if r['is_poor_low'] else '',
-                        'H Swept?': '✓' if r['poor_high_swept'] else '',
-                        'L Swept?': '✓' if r['poor_low_swept'] else '',
-                        'H Day': r['poor_high_sweep_day'] + 1 if r['poor_high_swept'] else '',
-                        'L Day': r['poor_low_sweep_day'] + 1 if r['poor_low_swept'] else '',
-                        'H MAE%': f"{r['poor_high_mae_pct']:.2f}%" if r['poor_high_swept'] else '',
-                        'L MAE%': f"{r['poor_low_mae_pct']:.2f}%" if r['poor_low_swept'] else ''
-                    })
-                
-                st.dataframe(pd.DataFrame(raw_daily), use_container_width=True, height=400)
+            st.dataframe(pd.DataFrame(raw_daily), use_container_width=True, height=400)
             
 elif page == "Large Wick Fills":
     render_page_header(
@@ -10043,33 +10348,6 @@ elif page == "Large Wick Fills":
             else:
                 st.warning("Selected wick time not found in chart data")
             
-            st.markdown("---")
-            st.subheader("Wick Details")
-            
-            # Create enhanced details table with all fields
-            details_df = pd.DataFrame({
-                'Time': results['times'],
-                'Day': results['day_names'],
-                'Session': results['sessions'],
-                'Candle Color': results['candle_colors'],
-                'Wick': results['wick_types'],
-                'Wick Size %': [f"{w:.2f}" for w in results['wick_sizes']],
-                'Open': [f"{o:.2f}" for o in results['opens']],
-                'High': [f"{h:.2f}" for h in results['highs']],
-                'Low': [f"{l:.2f}" for l in results['lows']],
-                'Close': [f"{c:.2f}" for c in results['closes']],
-                'Wick Level': [f"{wl:.2f}" for wl in results['wick_levels']],
-                'Bars Partial': results['bars_partial'],
-                'Bars Full': results['bars_full'],
-                'Partial %': [f"{p:.1f}" for p in results['partial_pcts']],
-                'Partial Fill Price': [f"{pfp:.2f}" if pfp is not None else "N/A" for pfp in results['partial_fill_prices']],
-                'Partial Fill Date': [pfd.strftime('%Y-%m-%d %H:%M') if pfd is not None else "N/A" for pfd in results['partial_fill_dates']],
-                'Full Fill Price': [f"{ffp:.2f}" if ffp is not None else "N/A" for ffp in results['full_fill_prices']],
-                'Full Fill Date': [ffd.strftime('%Y-%m-%d %H:%M') if ffd is not None else "N/A" for ffd in results['full_fill_dates']],
-                'Status': results['fill_status']
-            })
-            
-            st.dataframe(details_df, use_container_width=True, height=500)
 
 elif page == "Naked Opens":
     render_page_header(
@@ -10436,9 +10714,10 @@ elif page == "Naked Opens":
                 
                 add_ohlc_hover_trace(fig_no_chart, chart_data)
                 
-                # Add open level line
+                # Add open level ray (starts at naked-open candle and extends right)
+                ray_start = chart_df.index[no_idx]
                 fig_no_chart.add_trace(go.Scatter(
-                    x=[chart_data.index[0], chart_data.index[-1]],
+                    x=[ray_start, chart_data.index[-1]],
                     y=[no_open, no_open],
                     mode='lines',
                     name='Open Level',
@@ -11938,7 +12217,7 @@ elif page == "Quartile Opens":
             with st.spinner("Analyzing quartile opens..."):
                 results = analyze_quartile_opens(
                     df_15m, start_date_qo, end_date_qo, timeframe_qo,
-                    day_filter_qo, session_filter_qo
+                    day_filter_qo, session_filter_qo, lower_timeframe_qo
                 )
                 
                 st.session_state.quartile_opens_analyzed = True
@@ -11953,7 +12232,7 @@ elif page == "Quartile Opens":
         else:
             results_all_days = analyze_quartile_opens(
                 df_15m, start_date_qo, end_date_qo, timeframe_qo,
-                None, session_filter_qo
+                None, session_filter_qo, lower_timeframe_qo
             )
 
             # Calculate statistics
@@ -12434,7 +12713,6 @@ elif page == "Quartile Opens":
             lower_mae = [results['mae_pct'][i] for i in lower_opens]
             
             fig_mae = go.Figure()
-            
             if len(upper_mae) > 0:
                 fig_mae.add_trace(go.Histogram(
                     x=upper_mae,
@@ -12443,7 +12721,7 @@ elif page == "Quartile Opens":
                     opacity=0.7,
                     nbinsx=30
                 ))
-            
+
             if len(lower_mae) > 0:
                 fig_mae.add_trace(go.Histogram(
                     x=lower_mae,
@@ -12452,7 +12730,7 @@ elif page == "Quartile Opens":
                     opacity=0.7,
                     nbinsx=30
                 ))
-            
+
             fig_mae.update_layout(
                 barmode='overlay',
                 plot_bgcolor=plot_bg,
@@ -12463,16 +12741,16 @@ elif page == "Quartile Opens":
                 legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
                 height=400
             )
-            
+
             st.plotly_chart(fig_mae, use_container_width=True)
-            
+
             st.markdown("---")
             st.subheader("Hourly Sweep Distribution")
-            st.caption("Which hour of day sweeps typically complete")
-            
+            st.caption(f"Which hour of day sweeps typically complete (refined using {lower_timeframe_qo} data)")
+
             # Get sweep hours (only for swept trades)
-            upper_sweep_hours = [results['sweep_times'][i].hour for i in upper_opens if results['swept'][i] and results['sweep_times'][i] is not None]
-            lower_sweep_hours = [results['sweep_times'][i].hour for i in lower_opens if results['swept'][i] and results['sweep_times'][i] is not None]
+            upper_sweep_hours = [results['sweep_hours'][i] for i in upper_opens if results['swept'][i] and results['sweep_hours'][i] is not None]
+            lower_sweep_hours = [results['sweep_hours'][i] for i in lower_opens if results['swept'][i] and results['sweep_hours'][i] is not None]
             
             # Count by hour
             hours = list(range(24))
